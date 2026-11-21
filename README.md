@@ -23,8 +23,15 @@ Die gesamte Wohnung lässt sich frei drehen, zoomen, im **First-Person-Rundgang*
   - **Direkte 3D-Bearbeitung:** Objekte im 3D-Modell anklicken, per **Drag & Drop** verschieben, drehen (`R` oder Buttons), umbenennen und gezielt löschen
 - **Homey Pro Live-Steuerung & Sync:**
   - Geräte direkt im 3D-Modell oder über die Sidebar schalten, dimmen und RGB-Farben anpassen
+  - **Animierte 3D-Rolladen (`blinds`):** Realistische Rolladenkästen, Führungsschienen und Lamellen-Panzer direkt an Fenstern (mit Live-Position & Fahrtrichtung)
   - Geräte-Verknüpfung (Mapping) zwischen 3D-Objekten und deinen echten Homey-Geräten
   - **Schneller Start:** `/api/bootstrap.js` + `localStorage`-Cache für verzögerungsfreies Laden
+- **Live Smart-Home Übersicht HUD & Leistungsverlauf:**
+  - Kompaktes HUD unten links mit Uhrzeit, Lichter-Zähler (inkl. *Alle aus* per Klick), Live-Stromverbrauch in Watt samt **SVG-Sparkline-Verlauf**, Rolladen- & Saugroboter-Status, Raumtemperaturen und aktiver Medienwiedergabe
+- **Integriertes 3D-Sicherheits- & Alarmsystem:**
+  - Direkt im HUD schaltbarer Sicherheits-Modus (**Schutz: AKTIV / AUS**), gekoppelt an Homey-Logikvariable & Flows
+  - **Grafische 3D-Überwachung:** Bei aktivem Schutz erhalten alle 3D-Rolladen und Sensor-LEDs einen smaragdgrünen Sicherheits-Schimmer
+  - **Gezielte Alarm-Anzeige im Raum:** Löst ein Sensor aus, pulsieren **nur die Fenster/Rolladen des betroffenen Raums rot**, im Raum selbst erscheint ein **pulsierender roter Bodenring mit Alarm-Licht**, der Viewport erhält eine rote Alarm-Vignette und das HUD zeigt genau an, **wo** ausgelöst wurde
 - **First-Person-Rundgang (`V`):** Mit WASD oder Touch-Joystick durch deine Wohnung laufen inkl. Raum-Icons
 - **Mehrsprachig (Deutsch & Englisch):** Automatische Erkennung der Browsersprache (`auto`) oder manuelle Umschaltung unter *Verbindung → Sprache*
 - **5 Hintergrund- & Wallpaper-Themes:** `mica`, `bloom`, `oled`, `grid`, `transparent` (z. B. für Lively Wallpaper)
@@ -42,9 +49,9 @@ homey-3d/
 │   └── styles.css          # Glassmorphism-, Theme-, HUD- & Editor-Styles
 ├── js/
 │   ├── i18n.js             # Mehrsprachigkeit (DE / EN, Browser-Auto-Detect)
-│   ├── scene-core.js       # Three.js Szene, Themes, Materialien, Wände & Wandbilder
+│   ├── scene-core.js       # Three.js Szene, Themes, Materialien, Wände, Rolladen & Wandbilder
 │   ├── devices-3d.js       # 3D-Geräte-Meshes, Lichter, Halos & Control-Card
-│   ├── homey-api.js        # Homey Pro API-Client, Sync, Mapping & Bootstrap-Loader
+│   ├── homey-api.js        # Homey Pro API-Client, Sync, HUD, Sicherheits-System & Mapping
 │   ├── animations-fpv.js   # Render-Loop, Animationen, Raycasting & First-Person-Rundgang
 │   └── house-editor.js     # 3D-Haus-Editor (Vorlagen, Drag & Drop, Inspector, Export/Import)
 ├── server.js               # Node.js HTTP-Server mit /api/bootstrap.js & /api/config

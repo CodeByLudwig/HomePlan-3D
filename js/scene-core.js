@@ -35,14 +35,13 @@ function withHouseTarget(fn) {
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
-  preserveDrawingBuffer: true,
   alpha: true,
   powerPreference: 'high-performance'
 });
 renderer.setSize(container.clientWidth, container.clientHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 container.appendChild(renderer.domElement);
@@ -714,8 +713,12 @@ function addWindow(x1, z1, x2, z2, isDouble = false, customWallMat = null, isOut
   group.add(cap);
 
   // --- 3D ROLLADEN (Kasten, Führungsschienen & animierter Lamellen-Panzer) ---
+  const localBoxMat = shutterBoxMat.clone();
+  const localRailMat = shutterRailMat.clone();
+  const localCurtainMat = shutterCurtainMat.clone();
+
   // Rolladenkasten oben über dem Fenster
-  const shutterBox = new THREE.Mesh(new THREE.BoxGeometry(len + 0.03, 0.13, 0.165), shutterBoxMat);
+  const shutterBox = new THREE.Mesh(new THREE.BoxGeometry(len + 0.03, 0.13, 0.165), localBoxMat);
   shutterBox.position.set(0, 1.715, 0);
   shutterBox.castShadow = true;
   group.add(shutterBox);
@@ -723,7 +726,7 @@ function addWindow(x1, z1, x2, z2, isDouble = false, customWallMat = null, isOut
   // Seitliche Führungsschienen
   const railH = winH - frameThickness;
   [-len / 2 + frameThickness * 0.65, len / 2 - frameThickness * 0.65].forEach(rx => {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.024, railH, 0.145), shutterRailMat);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.024, railH, 0.145), localRailMat);
     rail.position.set(rx, winY, 0);
     group.add(rail);
   });
@@ -733,7 +736,7 @@ function addWindow(x1, z1, x2, z2, isDouble = false, customWallMat = null, isOut
   const curtainW = len - frameThickness * 1.6;
   const curtainGeo = new THREE.BoxGeometry(curtainW, curtainMaxH, 0.105);
   curtainGeo.translate(0, -curtainMaxH / 2, 0);
-  const shutterCurtain = new THREE.Mesh(curtainGeo, shutterCurtainMat);
+  const shutterCurtain = new THREE.Mesh(curtainGeo, localCurtainMat);
   shutterCurtain.position.set(0, 1.645, 0);
   group.add(shutterCurtain);
 
@@ -750,6 +753,9 @@ function addWindow(x1, z1, x2, z2, isDouble = false, customWallMat = null, isOut
     len,
     angle,
     curtain: shutterCurtain,
+    boxMat: localBoxMat,
+    railMat: localRailMat,
+    curtainMat: localCurtainMat,
     position: 1.0,
     targetPosition: 1.0,
     movingState: 'idle',

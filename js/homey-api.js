@@ -680,7 +680,8 @@ function applyDeviceState(id, state, customText = null) {
   updateBadgeVisuals(id);
   if (obj.data.type === 'blinds') {
     const pct = Math.round(dimFactor * 100);
-    obj.badge.innerHTML = `${obj.data.icon} <span style="font-size:10px;font-weight:700;margin-left:2px;">${pct}%</span>`;
+    obj.badge.classList.add('blinds-badge');
+    obj.badge.innerHTML = `${obj.data.icon}<span class="blinds-pct">${pct}%</span>`;
   }
   if (obj.data.type === 'vacuum') {
     // Alle zweiten Emojis (⚡, 💨, ⏸️, 🔋, 🧼, 💧, 🤖) aus dem Text entfernen, damit NIE zwei Icons im Badge sind
@@ -1396,6 +1397,7 @@ async function connectToHomey(isSilent = false) {
 
     // Live-Zustände sofort ohne redundanten zweiten Fetch anwenden!
     applyHomeyDevices(data);
+    fetchSecurityState();
 
     // Sidebar im Hintergrund oder bei Bedarf rendern (0ms Stottern):
     requestSidebarRender();
@@ -1441,6 +1443,7 @@ async function syncFromHomeyOnce() {
     if (!res.ok) return;
     const data = await res.json();
     applyHomeyDevices(data);
+    fetchSecurityState();
   } catch (e) {}
 }
 
@@ -1566,6 +1569,7 @@ function updateOverviewClock() {
 
 function updateOverviewHud() {
   const hud = document.getElementById('overview-hud');
+  updateSecurityHud();
   if (!hud || hud.classList.contains('collapsed')) return;
   updateOverviewClock();
 
@@ -1732,5 +1736,260 @@ function updateOverviewSparkline(watts) {
   if (dotEl) {
     dotEl.setAttribute('cx', last[0].toFixed(1));
     dotEl.setAttribute('cy', last[1].toFixed(1));
+  }
+}
+
+// --- Sicherheits-System (Logik-Variable Sicherheit_Aktiv + Live-Sensoren) ---
+const SECURITY_LOGIC_ID = '475c7aa4-a8c2-4a28-93f6-de21501d0fde';
+const SECURITY_FLOW_ON = 'cc44f16e-c7f6-4e25-b341-b507a6e20cdd';
+const SECURITY_FLOW_OFF = '7a60e36c-b21d-4cd5-922f-ad36120b1b38';
+let homeySecurityArmed = false;
+
+async function fetchSecurityState() {
+  if (!homeyConnected || !homeyBaseUrl || !homeyToken) return;
+  try {
+    const res = await fetch(`${homeyBaseUrl}/api/manager/logic/variable/${SECURITY_LOGIC_ID}?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Authorization': `Bearer ${homeyToken}` }
+    });
+    if (!res.ok) return;
+    const v = await res.json();
+    homeySecurityArmed = Boolean(v && v.value);
+    updateSecurityHud();
+  } catch (e) {}
+}
+
+function getTriggeredSecurityZones() {
+  const zones = [];
+  const sensors = [
+    { roomId: 'arbeitszimmer', id: '9d9716c3-21fe-48b4-b856-b34a13e47612', name: 'Arbeitszimmer', caps: ['alarm_motion', 'alarm_tamper'] },
+    { roomId: 'schlafzimmer', id: 'c9e8effa-9a01-4b9d-8710-041a056cfdba', name: 'Schlafzimmer', caps: ['alarm_motion', 'alarm_tamper'] },
+    { roomId: 'flur', id: '82b8f342-80e1-4645-929d-7f4110562dd5', name: 'Flur', caps: ['alarm_presence'] }
+  ];
+  sensors.forEach(s => {
+    const hDev = homeyRawDevicesById ? homeyRawDevicesById[s.id] : null;
+    if (!hDev || !hDev.capabilitiesObj) return;
+    const hit = s.caps.some(c => Boolean(hDev.capabilitiesObj[c] && hDev.capabilitiesObj[c].value));
+    if (hit) zones.push({ roomId: s.roomId, name: s.name });
+  });
+  return zones;
+}
+
+function updateSecurityHud() {
+  const bar = document.getElementById('ov-security-bar');
+  const hud = document.getElementById('overview-hud');
+  const vignette = document.getElementById('security-alarm-vignette');
+  const titleEl = document.getElementById('ov-sec-title');
+  const subEl = document.getElementById('ov-sec-sub');
+  const pillEl = document.getElementById('ov-sec-pill');
+  const iconEl = document.getElementById('ov-sec-icon');
+  if (!bar || !hud) return;
+
+  const triggered = getTriggeredSecurityZones();
+  const triggeredNames = triggered.map(z => z.name);
+  const triggeredRoomIds = new Set(triggered.map(z => z.roomId));
+  const isAlarm = homeySecurityArmed && triggered.length > 0;
+
+  bar.classList.remove('is-off', 'is-armed', 'is-alarm');
+  hud.classList.remove('sec-armed', 'sec-alarm');
+
+  if (isAlarm) {
+    bar.classList.add('is-alarm');
+    hud.classList.add('sec-alarm');
+    if (vignette) vignette.classList.remove('hidden');
+    if (iconEl) iconEl.textContent = '🚨';
+    if (titleEl) titleEl.textContent = 'ALARM AUSGELÖST!';
+    if (subEl) subEl.textContent = `Wo: ${triggeredNames.join(', ')}`;
+    if (pillEl) pillEl.textContent = 'ALARM';
+  } else if (homeySecurityArmed) {
+    bar.classList.add('is-armed');
+    hud.classList.add('sec-armed');
+    if (vignette) vignette.classList.add('hidden');
+    if (iconEl) iconEl.textContent = '🛡️';
+    if (titleEl) titleEl.textContent = 'Schutz: AKTIV';
+    if (subEl) subEl.textContent = 'Alle Bereiche ruhig · Tippen = Aus';
+    if (pillEl) pillEl.textContent = 'AKTIV';
+  } else {
+    bar.classList.add('is-off');
+    if (vignette) vignette.classList.add('hidden');
+    if (iconEl) iconEl.textContent = '🛡️';
+    if (titleEl) titleEl.textContent = 'Schutz: AUS';
+    if (subEl) subEl.textContent = triggered.length > 0 ? `Aktivität: ${triggeredNames.join(', ')}` : 'Tippen zum Aktivieren';
+    if (pillEl) pillEl.textContent = 'AUS';
+  }
+
+  update3dSecurityVisuals(homeySecurityArmed, isAlarm, triggeredRoomIds);
+}
+
+let secAlarmPulseTimer = null;
+let secAlarmPulsePhase = 0;
+const secRoomAlarmMarkers = {};
+
+function findClosestRoomId(x, z) {
+  if (typeof ROOMS === 'undefined' || !Array.isArray(ROOMS)) return null;
+  let bestId = null;
+  let bestDist = Infinity;
+  ROOMS.forEach(r => {
+    if (!Array.isArray(r.labelPos)) return;
+    const d = Math.hypot(r.labelPos[0] - x, r.labelPos[2] - z);
+    if (d < bestDist) {
+      bestDist = d;
+      bestId = r.id;
+    }
+  });
+  return bestId;
+}
+
+function ensureRoomAlarmMarker(room) {
+  if (secRoomAlarmMarkers[room.id]) return secRoomAlarmMarkers[room.id];
+  if (typeof scene === 'undefined' || !Array.isArray(room.labelPos)) return null;
+
+  const group = new THREE.Group();
+  group.position.set(room.labelPos[0], 0.04, room.labelPos[2]);
+
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xef4444,
+    transparent: true,
+    opacity: 0.75,
+    side: THREE.DoubleSide
+  });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.78, 36), ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+
+  const innerMat = new THREE.MeshBasicMaterial({
+    color: 0xef4444,
+    transparent: true,
+    opacity: 0.22,
+    side: THREE.DoubleSide
+  });
+  const inner = new THREE.Mesh(new THREE.CircleGeometry(0.55, 36), innerMat);
+  inner.rotation.x = -Math.PI / 2;
+  group.add(inner);
+
+  const alarmLight = new THREE.PointLight(0xef4444, 0, 4.5, 2);
+  alarmLight.position.set(0, 1.45, 0);
+  group.add(alarmLight);
+
+  group.visible = false;
+  scene.add(group);
+  secRoomAlarmMarkers[room.id] = { group, ring, ringMat, innerMat, alarmLight };
+  return secRoomAlarmMarkers[room.id];
+}
+
+function update3dSecurityVisuals(isArmed, isAlarm, triggeredRoomIds = new Set()) {
+  const shutters = Array.isArray(window.windowShutters) ? window.windowShutters : [];
+
+  if (secAlarmPulseTimer && !isAlarm) {
+    clearInterval(secAlarmPulseTimer);
+    secAlarmPulseTimer = null;
+  }
+
+  // Pro Fenster / Rollade individuell färben: nur betroffener Raum pulsiert rot, übrige bleiben grün
+  const alarmShutters = [];
+  shutters.forEach(ws => {
+    if (!ws.boxMat || !ws.railMat || !ws.curtainMat) return;
+    const roomId = ws._roomId || (ws._roomId = findClosestRoomId(ws.cx, ws.cz));
+    const roomTriggered = isAlarm && roomId && triggeredRoomIds.has(roomId);
+
+    if (roomTriggered) {
+      ws.boxMat.emissive.setHex(0xdc2626);
+      ws.railMat.emissive.setHex(0xdc2626);
+      ws.curtainMat.emissive.setHex(0xdc2626);
+      alarmShutters.push(ws);
+    } else if (isArmed) {
+      ws.boxMat.emissive.setHex(0x10b981);
+      ws.boxMat.emissiveIntensity = 0.28;
+      ws.railMat.emissive.setHex(0x10b981);
+      ws.railMat.emissiveIntensity = 0.32;
+      ws.curtainMat.emissive.setHex(0x059669);
+      ws.curtainMat.emissiveIntensity = 0.16;
+    } else {
+      ws.boxMat.emissive.setHex(0x000000);
+      ws.boxMat.emissiveIntensity = 0;
+      ws.railMat.emissive.setHex(0x000000);
+      ws.railMat.emissiveIntensity = 0;
+      ws.curtainMat.emissive.setHex(0x000000);
+      ws.curtainMat.emissiveIntensity = 0;
+    }
+  });
+
+  // Raum-Alarm-Markierung (pulsierender roter Bodenring + rotes Raumlicht nur im betroffenen Raum)
+  const activeMarkers = [];
+  if (typeof ROOMS !== 'undefined' && Array.isArray(ROOMS)) {
+    ROOMS.forEach(r => {
+      const m = ensureRoomAlarmMarker(r);
+      if (!m) return;
+      const roomTriggered = isAlarm && triggeredRoomIds.has(r.id);
+      m.group.visible = roomTriggered;
+      if (roomTriggered) {
+        activeMarkers.push(m);
+      } else {
+        m.alarmLight.intensity = 0;
+      }
+    });
+  }
+
+  if (isAlarm && !secAlarmPulseTimer) {
+    secAlarmPulseTimer = setInterval(() => {
+      secAlarmPulsePhase += 0.25;
+      const pulse = 0.5 + 0.5 * Math.sin(secAlarmPulsePhase);
+      const intensity = 0.35 + 0.55 * pulse;
+      alarmShutters.forEach(ws => {
+        ws.boxMat.emissiveIntensity = intensity;
+        ws.railMat.emissiveIntensity = intensity;
+        ws.curtainMat.emissiveIntensity = intensity * 0.78;
+      });
+      activeMarkers.forEach(m => {
+        const s = 0.92 + 0.18 * pulse;
+        m.ring.scale.set(s, s, 1);
+        m.ringMat.opacity = 0.45 + 0.45 * pulse;
+        m.innerMat.opacity = 0.12 + 0.20 * pulse;
+        m.alarmLight.intensity = 0.9 + 1.4 * pulse;
+      });
+    }, 80);
+  }
+
+  // Sensor-LEDs im 3D-Haus dezent grün hervorheben, wenn Schutz aktiv & ruhig
+  const secSensorIds = ['az_bewegungssensor', 'sz_nachttisch_sensor', 'flur_praesenz'];
+  secSensorIds.forEach(sid => {
+    const obj = typeof deviceObjects !== 'undefined' ? deviceObjects[sid] : null;
+    if (!obj || obj.data.on) return;
+    if (obj.standbyLedMat) {
+      obj.standbyLedMat.color.setHex(isArmed ? 0x10b981 : 0x38bdf8);
+      obj.standbyLedMat.opacity = isArmed ? 0.92 : 0.45;
+    }
+  });
+}
+
+async function toggleSecurityModeFromHud() {
+  const nextState = !homeySecurityArmed;
+  homeySecurityArmed = nextState;
+  updateSecurityHud();
+
+  if (!homeyConnected || !homeyBaseUrl || !homeyToken) {
+    showToast(nextState ? '🛡️ Schutz: AKTIV (Lokal)' : '🛡️ Schutz: AUS (Lokal)');
+    return;
+  }
+
+  const flowId = nextState ? SECURITY_FLOW_ON : SECURITY_FLOW_OFF;
+  try {
+    let res = await fetch(`${homeyBaseUrl}/api/manager/flow/flow/${flowId}/trigger`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${homeyToken}` }
+    });
+    if (!res.ok) {
+      res = await fetch(`${homeyBaseUrl}/api/manager/logic/variable/${SECURITY_LOGIC_ID}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${homeyToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ value: nextState })
+      });
+    }
+    showToast(nextState ? '🛡️ Sicherheits-Modus AKTIVIERT' : '🛡️ Sicherheits-Modus DEAKTIVIERT');
+  } catch (e) {
+    showToast('⚠️ Konnte Sicherheits-Modus nicht umschalten');
   }
 }

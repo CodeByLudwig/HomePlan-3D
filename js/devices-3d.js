@@ -205,18 +205,16 @@ function createDeviceLights() {
       const maxIntensity = getEffectiveLightIntensity(dev);
       const effectiveDist = dev.distance;
 
-      // Haupt-Punktlicht (exakt begrenzte Raumausleuchtung mit physikalischem Lichtabfall)
-      const light = new THREE.PointLight(dev.color, dev.on ? maxIntensity : 0, effectiveDist, 1.6);
-      light.position.set(...dev.pos);
-      if (isLampSource) {
-        light.castShadow = dev.on;
-        light.shadow.bias = -0.0012;
-        light.shadow.normalBias = 0.025;
-        light.shadow.mapSize.set(512, 512);
-        light.shadow.camera.near = 0.08;
-        light.shadow.camera.far = effectiveDist;
+      // Haupt-Punktlicht nur für echte Raum-Lichter (spart WebGL-Shader-Kompilierzeit!)
+      let light;
+      if (isLampSource && maxIntensity > 0) {
+        light = new THREE.PointLight(dev.color, dev.on ? maxIntensity : 0, effectiveDist, 1.6);
+        light.position.set(...dev.pos);
+        light.castShadow = false;
+        scene.add(light);
+      } else {
+        light = { intensity: 0, color: new THREE.Color(dev.color), castShadow: false, position: new THREE.Vector3(...dev.pos) };
       }
-      scene.add(light);
 
       // Gezielte, lokale Akzent-Lichter ausschließlich für spezielle Möbel (Vitrine / Lowboard-Türen)
       // KEIN ungefiltertes fillLight mehr, das durch Wände in fremde Räume scheinen könnte!
@@ -744,7 +742,7 @@ function createDeviceLights() {
       }
 
       const badge = document.createElement('div');
-      badge.className = `device-badge ${dev.on ? 'on' : ''}`;
+      badge.className = `device-badge ${dev.type === 'blinds' ? 'blinds-badge ' : ''}${dev.on ? 'on' : ''}`;
       badge.title = `${dev.name} (Klicken zum Steuern)`;
       badge.innerHTML = dev.icon;
       const isLedOrDimmable = dev.type === 'led' || dev.type === 'nanoleaf' || dev.type === 'panel_leds' || dev.type === 'blinds';
