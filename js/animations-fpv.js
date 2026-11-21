@@ -448,6 +448,22 @@ function animate() {
   });
   window.doorsMoving = doorsMoving;
 
+  // Echte Rolladen-Geschwindigkeit (~20s für 0% <-> 100%, 0 Arbeit im Stillstand)
+  if (Array.isArray(window.windowShutters) && window.windowShutters.length > 0) {
+    for (let i = 0; i < window.windowShutters.length; i++) {
+      const ws = window.windowShutters[i];
+      const diff = ws.targetPosition - ws.position;
+      const step = dt * 0.05; // 1.0 / 20 Sekunden (entspricht time_up/down_movement in Homey)
+      if (Math.abs(diff) > step) {
+        ws.position += Math.sign(diff) * step;
+        ws.applyVisual(ws.position);
+      } else if (ws.position !== ws.targetPosition) {
+        ws.position = ws.targetPosition;
+        ws.applyVisual(ws.position);
+      }
+    }
+  }
+
   updateRoborockAnimation(dt);
   if (typeof fpvMode !== 'undefined' && fpvMode) {
     updateFPV(dt);

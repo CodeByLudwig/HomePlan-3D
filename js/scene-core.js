@@ -577,6 +577,32 @@ const windowGlassMat = new THREE.MeshPhysicalMaterial({
 });
 const windowFrameMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.28 });
 
+// Gemeinsame, GPU-schonende Materialien & Lamellen-Textur für alle 3D-Rolladen (1 Draw-Call pro Fenster)
+function createShutterSlatTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const slats = 16;
+  const h = c.height / slats;
+  for (let i = 0; i < slats; i++) {
+    const y = i * h;
+    ctx.fillStyle = i === slats - 1 ? '#475569' : (i % 2 === 0 ? '#94a3b8' : '#8596ab');
+    ctx.fillRect(0, y, c.width, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillRect(0, y, c.width, 2);
+    ctx.fillStyle = 'rgba(15,23,42,0.35)';
+    ctx.fillRect(0, y + h - 2, c.width, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+const shutterBoxMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.45, metalness: 0.08 });
+const shutterRailMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.4, metalness: 0.15 });
+const shutterCurtainMat = new THREE.MeshStandardMaterial({ map: createShutterSlatTexture(), roughness: 0.42, metalness: 0.20 });
+
 function addWindow(x1, z1, x2, z2, isDouble = false, customWallMat = null, isOuter = true, flipOuter = false) {
   collisionWalls.push({ x1, z1, x2, z2, halfThick: 0.06 });
   const dx = x2 - x1;
@@ -686,6 +712,59 @@ function addWindow(x1, z1, x2, z2, isDouble = false, customWallMat = null, isOut
   );
   cap.position.y = 1.81;
   group.add(cap);
+
+  // --- 3D ROLLADEN (Kasten, Führungsschienen & animierter Lamellen-Panzer) ---
+  // Rolladenkasten oben über dem Fenster
+  const shutterBox = new THREE.Mesh(new THREE.BoxGeometry(len + 0.03, 0.13, 0.165), shutterBoxMat);
+  shutterBox.position.set(0, 1.715, 0);
+  shutterBox.castShadow = true;
+  group.add(shutterBox);
+
+  // Seitliche Führungsschienen
+  const railH = winH - frameThickness;
+  [-len / 2 + frameThickness * 0.65, len / 2 - frameThickness * 0.65].forEach(rx => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.024, railH, 0.145), shutterRailMat);
+    rail.position.set(rx, winY, 0);
+    group.add(rail);
+  });
+
+  // Lamellen-Panzer als einzelnes performantes Mesh (wächst von oben y=1.645 nach unten bis y=0.595)
+  const curtainMaxH = 1.05;
+  const curtainW = len - frameThickness * 1.6;
+  const curtainGeo = new THREE.BoxGeometry(curtainW, curtainMaxH, 0.105);
+  curtainGeo.translate(0, -curtainMaxH / 2, 0);
+  const shutterCurtain = new THREE.Mesh(curtainGeo, shutterCurtainMat);
+  shutterCurtain.position.set(0, 1.645, 0);
+  group.add(shutterCurtain);
+
+  const applyShutterVisual = (pos) => {
+    // Standard-Homey: 0.0 = komplett zu (ganz unten), 1.0 = komplett offen (oben im Kasten)
+    const clamped = Math.max(0, Math.min(1, Number.isFinite(pos) ? pos : 1));
+    shutterCurtain.scale.y = Math.max(0.035, 1 - clamped);
+  };
+
+  if (!window.windowShutters) window.windowShutters = [];
+  const shutterObj = {
+    cx,
+    cz,
+    len,
+    angle,
+    curtain: shutterCurtain,
+    position: 1.0,
+    targetPosition: 1.0,
+    movingState: 'idle',
+    applyVisual: applyShutterVisual,
+    setPosition: (pos, immediate = false) => {
+      const clamped = Math.max(0, Math.min(1, Number.isFinite(pos) ? pos : 1));
+      shutterObj.targetPosition = clamped;
+      if (immediate) {
+        shutterObj.position = clamped;
+        applyShutterVisual(clamped);
+      }
+    }
+  };
+  applyShutterVisual(1.0);
+  window.windowShutters.push(shutterObj);
 
   group.position.set(cx, 0, cz);
   group.rotation.y = -angle;

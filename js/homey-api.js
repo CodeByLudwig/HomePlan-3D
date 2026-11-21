@@ -116,6 +116,7 @@ function clearHouseScene() {
   allInteractiveDoorMeshes.length = 0;
   Object.keys(apartmentDoors).forEach(k => delete apartmentDoors[k]);
   Object.keys(deviceObjects).forEach(k => delete deviceObjects[k]);
+  window.windowShutters = [];
   labelsContainer.innerHTML = '';
 }
 
@@ -495,6 +496,7 @@ function renderSidebar() {
       item.className = `device-item ${dev.on ? 'active' : ''}`;
       item.id = `sidebar-dev-${dev.id}`;
       const isControllableLight = dev.type === 'led' || dev.type === 'nanoleaf' || dev.type === 'panel_leds';
+      const isBlinds = dev.type === 'blinds';
       item.onclick = (e) => {
         toggleDevice(dev.id);
       };
@@ -505,6 +507,7 @@ function renderSidebar() {
         </div>
         <div style="display: flex; align-items: center; gap: 6px;">
           ${isControllableLight ? `<span style="font-size: 0.82rem; cursor: pointer; padding: 2px 4px; border-radius: 4px; background: rgba(255,255,255,0.08);" title="Farbe & Dimmen anpassen" onclick="event.stopPropagation(); openControlCard('${dev.id}', event.clientX, event.clientY)">🎨</span>` : ''}
+          ${isBlinds ? `<span style="font-size: 0.82rem; cursor: pointer; padding: 2px 4px; border-radius: 4px; background: rgba(255,255,255,0.08);" title="Position einstellen" onclick="event.stopPropagation(); openControlCard('${dev.id}', event.clientX, event.clientY)">🎚️</span>` : ''}
           <span class="device-state">${getStatusLabel(dev, dev.on)}</span>
         </div>
       `;
@@ -596,6 +599,13 @@ function getStatusLabel(dev, state, customText) {
   if (dev.type === 'hub') {
     return state ? '🌐 Online' : 'Aus';
   }
+  if (dev.type === 'blinds') {
+    const obj = deviceObjects[dev.id];
+    const pct = Math.round(((obj && typeof obj.dim === 'number') ? obj.dim : 1) * 100);
+    if (pct <= 2) return 'Zu (0%)';
+    if (pct >= 98) return 'Offen (100%)';
+    return `${pct}% offen`;
+  }
   return state ? 'AN' : 'AUS';
 }
 
@@ -613,6 +623,7 @@ function applyDeviceState(id, state, customText = null) {
       obj._lastColor === colorVal) {
     return;
   }
+  const isFirstApply = !obj._hasApplied;
   obj._hasApplied = true;
   obj._lastDim = dimFactor;
   obj._lastCustomText = customText;
@@ -656,12 +667,21 @@ function applyDeviceState(id, state, customText = null) {
     }
   } else if (obj.data.type === 'light') {
     obj.glowMat.opacity = state ? 0.78 : 0.14;
+  } else if (obj.data.type === 'blinds') {
+    obj.glowMat.opacity = state ? 0.85 : 0.25;
+    if (obj.shutterControl) {
+      obj.shutterControl.setPosition(dimFactor, isFirstApply);
+    }
   } else {
     obj.glowMat.opacity = state ? 0.92 : 0.14;
   }
 
   const labelText = getStatusLabel(obj.data, state, customText);
   updateBadgeVisuals(id);
+  if (obj.data.type === 'blinds') {
+    const pct = Math.round(dimFactor * 100);
+    obj.badge.innerHTML = `${obj.data.icon} <span style="font-size:10px;font-weight:700;margin-left:2px;">${pct}%</span>`;
+  }
   if (obj.data.type === 'vacuum') {
     // Alle zweiten Emojis (⚡, 💨, ⏸️, 🔋, 🧼, 💧, 🤖) aus dem Text entfernen, damit NIE zwei Icons im Badge sind
     const cleanLabel = labelText.replace(/[🤖🧼💧⚡💨⏸️🔋🏠]/g, '').replace(/\s+/g, ' ').trim();
@@ -689,9 +709,14 @@ function applyDeviceState(id, state, customText = null) {
     if (card && !card.classList.contains('hidden')) {
       const powerBtn = document.getElementById('ctrl-power-btn');
       powerBtn.classList.toggle('active', state);
-      document.getElementById('ctrl-power-text').textContent = state ? 'GERÄT AUSSCHALTEN' : 'GERÄT EINSCHALTEN';
       const pct = Math.round(dimFactor * 100);
-      document.getElementById('ctrl-status-sub').textContent = state ? `AN · ${pct}%` : 'AUS';
+      if (obj.data.type === 'blinds') {
+        document.getElementById('ctrl-power-text').textContent = pct > 50 ? 'ROLLADE SCHLIESSEN (0%)' : 'ROLLADE ÖFFNEN (100%)';
+        document.getElementById('ctrl-status-sub').textContent = pct <= 2 ? 'ZU · 0%' : (pct >= 98 ? 'OFFEN · 100%' : `OFFEN · ${pct}%`);
+      } else {
+        document.getElementById('ctrl-power-text').textContent = state ? 'GERÄT AUSSCHALTEN' : 'GERÄT EINSCHALTEN';
+        document.getElementById('ctrl-status-sub').textContent = state ? `AN · ${pct}%` : 'AUS';
+      }
     }
   }
   debounceSaveDeviceStates();
@@ -784,12 +809,25 @@ function openControlCard(devId, clientX = null, clientY = null) {
 
   const state = Boolean(dev.on);
   const pct = Math.round((typeof obj.dim === 'number' ? obj.dim : 1.0) * 100);
-  document.getElementById('ctrl-status-sub').textContent = state ? `AN · ${pct}%` : 'AUS';
   const powerBtn = document.getElementById('ctrl-power-btn');
   powerBtn.classList.toggle('active', state);
-  document.getElementById('ctrl-power-text').textContent = state ? 'GERÄT AUSSCHALTEN' : 'GERÄT EINSCHALTEN';
+  if (dev.type === 'blinds') {
+    document.getElementById('ctrl-status-sub').textContent = pct <= 2 ? 'ZU · 0%' : (pct >= 98 ? 'OFFEN · 100%' : `OFFEN · ${pct}%`);
+    document.getElementById('ctrl-power-text').textContent = pct > 50 ? 'ROLLADE SCHLIESSEN (0%)' : 'ROLLADE ÖFFNEN (100%)';
+  } else {
+    document.getElementById('ctrl-status-sub').textContent = state ? `AN · ${pct}%` : 'AUS';
+    document.getElementById('ctrl-power-text').textContent = state ? 'GERÄT AUSSCHALTEN' : 'GERÄT EINSCHALTEN';
+  }
 
   const slider = document.getElementById('ctrl-dim-slider');
+  const dimTitle = document.getElementById('ctrl-dim-title');
+  if (dev.type === 'blinds') {
+    if (dimTitle) dimTitle.textContent = '🪟 Position (0% Zu – 100% Offen)';
+    slider.min = '0';
+  } else {
+    if (dimTitle) dimTitle.textContent = '🔅 Helligkeit (Dimmen)';
+    slider.min = '1';
+  }
   slider.value = pct;
   document.getElementById('ctrl-dim-label').textContent = `${pct}%`;
 
@@ -852,7 +890,9 @@ function onControlDimSlider(val) {
   if (!activeControlDevId) return;
   const numVal = parseInt(val, 10);
   document.getElementById('ctrl-dim-label').textContent = `${numVal}%`;
-  const floatVal = Math.max(0.01, Math.min(1.0, numVal / 100));
+  const obj = deviceObjects[activeControlDevId];
+  const minVal = (obj && obj.data && obj.data.type === 'blinds') ? 0.0 : 0.01;
+  const floatVal = Math.max(minVal, Math.min(1.0, numVal / 100));
   setDeviceDim(activeControlDevId, floatVal);
 }
 
@@ -932,6 +972,21 @@ function setDeviceDim(id, dimVal) {
   if (!obj) return;
   obj.dim = dimVal;
 
+  const pct = Math.round(dimVal * 100);
+  if (obj.data.type === 'blinds') {
+    if (obj.shutterControl) {
+      obj.shutterControl.movingState = 'idle';
+      obj.shutterControl.setPosition(dimVal);
+    }
+    const labelText = pct <= 2 ? 'Zu (0%)' : (pct >= 98 ? 'Offen (100%)' : `${pct}% offen`);
+    applyDeviceState(id, dimVal < 0.98, labelText);
+    const mappedHomeyId = deviceMapping[id];
+    if (homeyConnected && mappedHomeyId) {
+      sendHomeyDimDebounced(mappedHomeyId, dimVal, 'windowcoverings_set');
+    }
+    return;
+  }
+
   if (obj.data.on) {
     obj.light.intensity = obj.maxIntensity * dimVal;
     if (obj.fillLight) {
@@ -943,7 +998,6 @@ function setDeviceDim(id, dimVal) {
     }
   }
 
-  const pct = Math.round(dimVal * 100);
   const sbItem = document.getElementById(`sidebar-dev-${id}`);
   if (sbItem && obj.data.on) {
     sbItem.querySelector('.device-state').textContent = `AN (${pct}%)`;
@@ -954,14 +1008,14 @@ function setDeviceDim(id, dimVal) {
 
   const mappedHomeyId = deviceMapping[id];
   if (homeyConnected && mappedHomeyId) {
-    sendHomeyDimDebounced(mappedHomeyId, dimVal);
+    sendHomeyDimDebounced(mappedHomeyId, dimVal, 'dim');
   }
 }
 
-function sendHomeyDimDebounced(mappedHomeyId, dimVal) {
+function sendHomeyDimDebounced(mappedHomeyId, dimVal, capName = 'dim') {
   if (dimDebounceTimer) clearTimeout(dimDebounceTimer);
   dimDebounceTimer = setTimeout(() => {
-    sendHomeyCapability(mappedHomeyId, 'dim', dimVal);
+    sendHomeyCapability(mappedHomeyId, capName, dimVal);
   }, 150);
 }
 
@@ -1043,6 +1097,25 @@ function evaluateHomeyDevice(hDev, dev3d) {
 
     const label = active ? cleanText : dockedText;
     return { active, label, cleanText, dockedText, extras, mode: 'vacuum', capKey: 'is_cleaning' };
+  }
+
+  // 1b. Rolladen / Jalousien (windowcoverings_set / windowcoverings_state: 0.0 = Zu, 1.0 = Offen)
+  if (dev3d.type === 'blinds' || caps.windowcoverings_set !== undefined || caps.windowcoverings_state !== undefined) {
+    let pos = 1.0;
+    const rawState = caps.windowcoverings_state ? String(caps.windowcoverings_state.value || '').toLowerCase() : 'idle';
+    if (caps.windowcoverings_set && typeof caps.windowcoverings_set.value === 'number') {
+      pos = Math.max(0, Math.min(1, caps.windowcoverings_set.value));
+    } else if (caps.windowcoverings_state) {
+      if (rawState === 'down') pos = 0.0;
+      else if (rawState === 'up') pos = 1.0;
+      else pos = 0.5;
+    }
+    let movingState = 'idle';
+    if (rawState === 'up' && pos < 0.99) movingState = 'up';
+    else if (rawState === 'down' && pos > 0.01) movingState = 'down';
+    const pct = Math.round(pos * 100);
+    const label = pct <= 2 ? 'Zu (0%)' : (pct >= 98 ? 'Offen (100%)' : `${pct}% offen`);
+    return { active: pos < 0.98, label, extras, mode: 'blinds', capKey: 'windowcoverings_set', position: pos, movingState };
   }
 
   // 2. Präsenz- oder Bewegungssensor-Capabilities prüfen
@@ -1153,7 +1226,24 @@ async function toggleDevice(id) {
       return;
     }
 
-    // 3. Lautsprecher / Alexa über speaker_playing
+    // 3. Rolladen / Jalousien (0% = Zu <-> 100% = Offen)
+    if (evalInfo.mode === 'blinds') {
+      const currentPos = typeof obj.dim === 'number' ? obj.dim : 1.0;
+      const targetPos = currentPos > 0.5 ? 0.0 : 1.0;
+      obj.dim = targetPos;
+      const pct = Math.round(targetPos * 100);
+      applyDeviceState(id, targetPos < 0.98, targetPos <= 0.02 ? 'Zu (0%)' : 'Offen (100%)');
+      const caps = hDev.capabilitiesObj || {};
+      if (caps.windowcoverings_set) {
+        await sendHomeyCapability(mappedHomeyId, 'windowcoverings_set', targetPos);
+      } else if (caps.windowcoverings_state) {
+        await sendHomeyCapability(mappedHomeyId, 'windowcoverings_state', targetPos < 0.5 ? 'down' : 'up');
+      }
+      showToast(`🪟 ${hDev.name}: ${pct <= 2 ? 'Fährt herunter (0% zu)' : 'Fährt hoch (100% offen)'}`);
+      return;
+    }
+
+    // 4. Lautsprecher / Alexa über speaker_playing
     if (evalInfo.mode === 'speaker') {
       applyDeviceState(id, newState, newState ? '▶️ Spielt' : '⏸️ Pause');
       await sendHomeyCapability(mappedHomeyId, 'speaker_playing', newState);
@@ -1194,6 +1284,9 @@ function applyHomeyDevices(data) {
     if (caps.dim && typeof caps.dim.value === 'number') {
       obj.dim = caps.dim.value;
     }
+    if (obj.data.type === 'blinds' && caps.windowcoverings_set && typeof caps.windowcoverings_set.value === 'number') {
+      obj.dim = Math.max(0, Math.min(1, caps.windowcoverings_set.value));
+    }
 
     // Live LED-Farbe synchronisieren (nur für Farb-LEDs & Nanoleaf, NICHT für az_wandlicht)
     if (dev3dId !== 'az_wandlicht' && (obj.data.type === 'led' || obj.data.type === 'nanoleaf')) {
@@ -1217,6 +1310,9 @@ function applyHomeyDevices(data) {
     }
 
     const evalInfo = evaluateHomeyDevice(hDev, obj.data);
+    if (evalInfo.mode === 'blinds' && obj.shutterControl) {
+      obj.shutterControl.movingState = evalInfo.movingState || 'idle';
+    }
     if (evalInfo.mode === 'vacuum' && window.roborockCommandGraceUntil) {
       if (Date.now() < window.roborockCommandGraceUntil && evalInfo.active !== obj.data.on) {
         return;
@@ -1238,6 +1334,9 @@ function applyHomeyDevices(data) {
   });
 
   saveDeviceStatesToCache();
+  if (typeof updateOverviewHud === 'function') {
+    updateOverviewHud();
+  }
 }
 
 async function connectToHomey(isSilent = false) {
@@ -1281,6 +1380,7 @@ async function connectToHomey(isSilent = false) {
             if (d.id.includes('lgtv') && (n.includes('lg') || n.includes('tv') || n.includes('fernseher'))) return true;
             if (d.id.includes('onkyo') && n.includes('onkyo')) return true;
             if (d.id.includes('stehlampe') && n.includes('stehlampe')) return true;
+            if (d.type === 'blinds' && (hd.class === 'windowcoverings' || hd.virtualClass === 'blinds' || n.includes('rollade'))) return true;
             return false;
           });
           if (match) deviceMapping[d.id] = match.id;
@@ -1325,7 +1425,8 @@ function scheduleNextHomeyPoll(delay = 3000) {
     } catch (e) {
     } finally {
       pollInProgress = false;
-      scheduleNextHomeyPoll(3000);
+      const anyShutterMoving = Array.isArray(window.windowShutters) && window.windowShutters.some(ws => ws.movingState === 'up' || ws.movingState === 'down');
+      scheduleNextHomeyPoll(anyShutterMoving ? 1000 : 3000);
     }
   }, delay);
 }
@@ -1443,3 +1544,193 @@ function setCameraPreset(preset) {
   controls.update();
 }
 
+
+
+// --- Live Smart-Home Übersicht HUD ---
+function toggleOverviewHud(forceCollapsed = null) {
+  const hud = document.getElementById('overview-hud');
+  const btn = document.getElementById('ov-toggle-btn');
+  if (!hud) return;
+  const collapse = forceCollapsed !== null ? forceCollapsed : !hud.classList.contains('collapsed');
+  hud.classList.toggle('collapsed', collapse);
+  if (btn) btn.textContent = collapse ? '▸' : '▾';
+  try { localStorage.setItem('homey_3d_ov_collapsed', collapse ? '1' : '0'); } catch (e) {}
+}
+
+function updateOverviewClock() {
+  const el = document.getElementById('ov-clock');
+  if (!el) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function updateOverviewHud() {
+  const hud = document.getElementById('overview-hud');
+  if (!hud || hud.classList.contains('collapsed')) return;
+  updateOverviewClock();
+
+  // 1. Lichter an zählen
+  let lightsOn = 0;
+  let lightsTotal = 0;
+  Object.values(deviceObjects).forEach(obj => {
+    const t = obj.data && obj.data.type;
+    if (t === 'light' || t === 'led' || t === 'panel_leds' || t === 'nanoleaf') {
+      lightsTotal++;
+      if (obj.data.on) lightsOn++;
+    }
+  });
+  const lightsEl = document.getElementById('ov-lights-val');
+  if (lightsEl) {
+    lightsEl.textContent = lightsOn === 0 ? `Alle aus (${lightsTotal})` : `${lightsOn} von ${lightsTotal} an`;
+    lightsEl.style.color = lightsOn > 0 ? '#fde047' : '#94a3b8';
+  }
+
+  // 2. Gesamtleistung (W) aus allen echten Homey-Geräten mit measure_power
+  let totalWatts = 0;
+  Object.values(homeyRawDevicesById || {}).forEach(hDev => {
+    const p = hDev?.capabilitiesObj?.measure_power?.value;
+    if (typeof p === 'number' && Number.isFinite(p) && p > 0) {
+      totalWatts += p;
+    }
+  });
+  const powerEl = document.getElementById('ov-power-val');
+  if (powerEl) {
+    powerEl.textContent = `${totalWatts.toFixed(1)} W`;
+  }
+  updateOverviewSparkline(totalWatts);
+
+  // 3. Rollade Rechts
+  const blindsObj = deviceObjects['kueche_rollade_rechts'];
+  const blindsEl = document.getElementById('ov-blinds-val');
+  if (blindsEl && blindsObj) {
+    blindsEl.textContent = getStatusLabel(blindsObj.data, blindsObj.data.on);
+  }
+
+  // 4. Saugroboter
+  const vacObj = deviceObjects['az_roborock'];
+  const vacEl = document.getElementById('ov-vacuum-val');
+  if (vacEl && vacObj) {
+    vacEl.textContent = vacObj.lastCustomLabel || getStatusLabel(vacObj.data, vacObj.data.on);
+  }
+
+  // 5. Raumtemperaturen
+  const tempsEl = document.getElementById('ov-temps');
+  if (tempsEl) {
+    const tempEntries = [];
+    const sensorDefs = [
+      { id: 'az_bewegungssensor', label: 'AZ' },
+      { id: 'flur_praesenz', label: 'Flur' },
+      { id: 'sz_nachttisch_sensor', label: 'SZ' }
+    ];
+    sensorDefs.forEach(s => {
+      const hId = deviceMapping[s.id];
+      const hDev = hId ? homeyRawDevicesById[hId] : null;
+      const t = hDev?.capabilitiesObj?.measure_temperature?.value;
+      const hum = hDev?.capabilitiesObj?.measure_humidity?.value;
+      if (typeof t === 'number') {
+        tempEntries.push(typeof hum === 'number' ? `${s.label} ${t.toFixed(1)}°C (${Math.round(hum)}%)` : `${s.label} ${t.toFixed(1)}°C`);
+      }
+    });
+    tempsEl.textContent = tempEntries.length > 0 ? `🌡️ ${tempEntries.join(' · ')}` : '🌡️ Keine Sensordaten';
+  }
+
+  // 6. Aktive Medien (Alexa Echo / Echo Dot / LG Fernseher)
+  const mediaEl = document.getElementById('ov-media');
+  if (mediaEl) {
+    const activeMedia = [];
+    ['wz_alexa', 'az_alexa'].forEach(id => {
+      const hDev = deviceMapping[id] ? homeyRawDevicesById[deviceMapping[id]] : null;
+      if (hDev?.capabilitiesObj?.speaker_playing?.value) {
+        const track = hDev.capabilitiesObj.speaker_track?.value || 'Wiedergabe';
+        const artist = hDev.capabilitiesObj.speaker_artist?.value;
+        activeMedia.push(`🎵 ${artist ? `${artist} – ${track}` : track}`);
+      }
+    });
+    const tvDev = deviceMapping['wz_lgtv'] ? homeyRawDevicesById[deviceMapping['wz_lgtv']] : null;
+    if (tvDev?.capabilitiesObj?.onoff?.value) {
+      const app = tvDev.capabilitiesObj.speaker_track?.value || 'AN';
+      activeMedia.push(`📺 TV: ${app}`);
+    }
+    if (activeMedia.length > 0) {
+      mediaEl.textContent = activeMedia.join('  |  ');
+      mediaEl.classList.remove('hidden');
+    } else {
+      mediaEl.classList.add('hidden');
+    }
+  }
+}
+
+async function turnOffAllLightsFromHud() {
+  const lightIds = Object.keys(deviceObjects).filter(id => {
+    const t = deviceObjects[id]?.data?.type;
+    return (t === 'light' || t === 'led' || t === 'panel_leds' || t === 'nanoleaf') && deviceObjects[id].data.on;
+  });
+  if (lightIds.length === 0) {
+    showToast('💡 Alle Lichter sind bereits aus.');
+    return;
+  }
+  for (const id of lightIds) {
+    applyDeviceState(id, false);
+    const hId = deviceMapping[id];
+    if (homeyConnected && hId) {
+      sendHomeyCapability(hId, 'onoff', false);
+    }
+  }
+  updateOverviewHud();
+  showToast(`💡 ${lightIds.length} Licht(er) ausgeschaltet.`);
+}
+
+// Initialzustand der Übersicht laden & Uhr jede Minute aktualisieren
+try {
+  if (localStorage.getItem('homey_3d_ov_collapsed') === '1') {
+    toggleOverviewHud(true);
+  }
+} catch (e) {}
+updateOverviewClock();
+setInterval(updateOverviewClock, 15000);
+
+
+let ovPowerHistory = [];
+try {
+  const savedHist = localStorage.getItem('homey_3d_power_hist');
+  if (savedHist) ovPowerHistory = JSON.parse(savedHist).filter(n => typeof n === 'number' && Number.isFinite(n));
+} catch (e) {}
+
+function updateOverviewSparkline(watts) {
+  ovPowerHistory.push(Math.max(0, Number(watts) || 0));
+  if (ovPowerHistory.length > 36) ovPowerHistory.shift();
+  try { localStorage.setItem('homey_3d_power_hist', JSON.stringify(ovPowerHistory)); } catch (e) {}
+
+  const lineEl = document.getElementById('ov-spark-line');
+  const areaEl = document.getElementById('ov-spark-area');
+  const dotEl = document.getElementById('ov-spark-dot');
+  const metaEl = document.getElementById('ov-chart-meta');
+  if (!lineEl || !areaEl) return;
+
+  const pts = ovPowerHistory.length >= 2 ? ovPowerHistory : [watts, watts];
+  const maxVal = Math.max(10, ...pts);
+  const minVal = Math.min(...pts);
+  const span = Math.max(5, maxVal - minVal);
+  if (metaEl) metaEl.textContent = `Peak ${Math.round(maxVal)} W`;
+
+  const w = 260;
+  const h = 46;
+  const padY = 5;
+  const coords = pts.map((v, idx) => {
+    const x = (idx / (pts.length - 1)) * (w - 6) + 2;
+    const y = h - padY - ((v - minVal) / span) * (h - padY * 2);
+    return [x, y];
+  });
+
+  const dLine = coords.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const last = coords[coords.length - 1];
+  const first = coords[0];
+  const dArea = `${dLine} L${last[0].toFixed(1)},${h} L${first[0].toFixed(1)},${h} Z`;
+
+  lineEl.setAttribute('d', dLine);
+  areaEl.setAttribute('d', dArea);
+  if (dotEl) {
+    dotEl.setAttribute('cx', last[0].toFixed(1));
+    dotEl.setAttribute('cy', last[1].toFixed(1));
+  }
+}

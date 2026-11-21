@@ -179,6 +179,9 @@ const lgOledScreenTex = createLgOledScreenTexture();
 const lgOledOffTex = createLgOledOffTexture();
 
 function getEffectiveLightIntensity(dev) {
+  if (dev.type === 'blinds') {
+    return 0;
+  }
   if (dev.type === 'sensor' || dev.type === 'media' || dev.type === 'hub' || dev.type === 'vacuum') {
     return dev.intensity * 0.25;
   }
@@ -698,6 +701,10 @@ function createDeviceLights() {
         glowMesh = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.007, 10, 24), glowMat);
         glowMesh.rotation.x = Math.PI / 2;
         glowMesh.position.set(dev.pos[0], 0.088, dev.pos[2]);
+      } else if (dev.type === 'blinds') {
+        // Dezente Status-LED am Rolladenkasten; das eigentliche 3D-Rolladen-Mesh hängt am Fenster
+        glowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.028, 12, 12), glowMat);
+        glowMesh.position.set(dev.pos[0], 1.71, dev.pos[2]);
       } else {
         glowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 16), glowMat);
         glowMesh.position.set(...dev.pos);
@@ -740,7 +747,7 @@ function createDeviceLights() {
       badge.className = `device-badge ${dev.on ? 'on' : ''}`;
       badge.title = `${dev.name} (Klicken zum Steuern)`;
       badge.innerHTML = dev.icon;
-      const isLedOrDimmable = dev.type === 'led' || dev.type === 'nanoleaf' || dev.type === 'panel_leds';
+      const isLedOrDimmable = dev.type === 'led' || dev.type === 'nanoleaf' || dev.type === 'panel_leds' || dev.type === 'blinds';
       badge.onclick = (e) => {
         e.stopPropagation();
         if (isLedOrDimmable) {
@@ -758,6 +765,51 @@ function createDeviceLights() {
       }
       labelsContainer.appendChild(badge);
 
+      // Passenden 3D-Fenster-Rolladen anhand der Position verknüpfen
+      let shutterControl = null;
+      if (dev.type === 'blinds' && Array.isArray(window.windowShutters) && window.windowShutters.length > 0) {
+        const tx = Array.isArray(dev.windowPos) ? dev.windowPos[0] : dev.pos[0];
+        const tz = Array.isArray(dev.windowPos) ? dev.windowPos[1] : dev.pos[2];
+        let best = null;
+        let bestDist = Infinity;
+        window.windowShutters.forEach(ws => {
+          const d = Math.hypot(ws.cx - tx, ws.cz - tz);
+          if (d < bestDist) {
+            bestDist = d;
+            best = ws;
+          }
+        });
+        if (best && bestDist < 1.2) {
+          shutterControl = best;
+        } else {
+          // Eigenständiges 3D-Rolladen-Mesh an beliebiger Editor-Position (falls kein Fenster in 1.2m Nähe)
+          const standalone = new THREE.Group();
+          standalone.position.set(dev.pos[0], 0, dev.pos[2]);
+          const sBox = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.13, 0.16), shutterBoxMat);
+          sBox.position.set(0, 1.715, 0);
+          standalone.add(sBox);
+          const sGeo = new THREE.BoxGeometry(0.84, 1.05, 0.105);
+          sGeo.translate(0, -0.525, 0);
+          const sCurtain = new THREE.Mesh(sGeo, shutterCurtainMat);
+          sCurtain.position.set(0, 1.645, 0);
+          standalone.add(sCurtain);
+          scene.add(standalone);
+          const objRef = {
+            position: 1.0,
+            targetPosition: 1.0,
+            movingState: 'idle',
+            setPosition: (pos) => {
+              const clamped = Math.max(0, Math.min(1, Number.isFinite(pos) ? pos : 1));
+              objRef.position = clamped;
+              objRef.targetPosition = clamped;
+              sCurtain.scale.y = Math.max(0.035, 1 - clamped);
+            }
+          };
+          objRef.setPosition(1.0);
+          shutterControl = objRef;
+        }
+      }
+
       deviceObjects[dev.id] = {
         data: dev,
         light,
@@ -771,6 +823,7 @@ function createDeviceLights() {
         haloSprite,
         haloOpacityOn,
         badge,
+        shutterControl,
         dim: 1.0,
         currentColor: '#' + dev.color.toString(16).padStart(6, '0')
       };

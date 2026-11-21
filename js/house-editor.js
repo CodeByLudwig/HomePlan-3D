@@ -30,6 +30,7 @@
   const DEVICE_CATALOG = [
     { type: 'light', icon: '💡', label: 'Deckenlicht', defaultY: 1.6, color: '#ffd699', intensity: 1.7, distance: 5.0 },
     { type: 'led', icon: '🌈', label: 'LED-Streifen / Ambient', defaultY: 0.5, color: '#a855f7', intensity: 1.4, distance: 2.8 },
+    { type: 'blinds', icon: '🪟', label: 'Rollade / Jalousie', defaultY: 1.18, color: '#38bdf8', intensity: 0, distance: 0 },
     { type: 'sensor', icon: '📡', label: 'Bewegungs-/Präsenzsensor', defaultY: 1.5, color: '#38bdf8', intensity: 0.45, distance: 1.6 },
     { type: 'tv', icon: '📺', label: 'Fernseher', defaultY: 1.0, color: '#60a5fa', intensity: 1.3, distance: 3.2 },
     { type: 'media', icon: '🗣️', label: 'Smart Speaker / Media', defaultY: 0.7, color: '#38bdf8', intensity: 0.45, distance: 1.4 },
@@ -834,9 +835,15 @@
       });
       previewGroup.add(ghost);
     } else if (editorState.tool === 'device') {
-      const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), previewMat);
-      sphere.position.set(pt.x, 1.2, pt.z);
-      previewGroup.add(sphere);
+      if (editorState.deviceType === 'blinds') {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.14), previewMat);
+        box.position.set(pt.x, 1.15, pt.z);
+        previewGroup.add(box);
+      } else {
+        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), previewMat);
+        sphere.position.set(pt.x, 1.2, pt.z);
+        previewGroup.add(sphere);
+      }
     } else if (editorState.tool === 'fpv_start') {
       const ghost = createFpvStartMarker({ x: pt.x, z: pt.z, yaw: editorState.fpvYawPreview });
       previewGroup.add(ghost);
