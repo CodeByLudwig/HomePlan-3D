@@ -32,12 +32,22 @@
 
       // Tab 1: Verbindung & Sprache
       'conn.title': '🔗 Live-Verbindung zu Homey Pro',
+      'conn.bridges_title': '🔗 Smart-Home Bridges (Connectoren)',
+      'conn.bridges_hint': 'Nutze Homey Pro, Home Assistant oder beide Bridges gleichzeitig.',
+      'conn.homey_title': '🌐 Homey Pro',
+      'conn.ha_title': '🏠 Home Assistant',
+      'conn.bridge_off': 'Aus',
       'conn.offline': 'Simulation (Offline)',
       'conn.online': 'Verbunden',
       'conn.ip_placeholder': 'Homey Pro IP-Adresse (z.B. 192.168.178.50)',
       'conn.token_placeholder': 'Homey API-Key (aus my.homey.app -> Einstellungen -> API Keys)',
       'conn.connect_btn': '🔌 Verbinden & in config.json speichern',
-      'conn.hint': '💡 <strong>So bekommst du den Key:</strong> Öffne <code>my.homey.app</code> → Zahnrad unten links → <em>API-Keys</em> → <em>Neuer API-Key</em>. Änderungen werden automatisch in <code>config.json</code> gesichert.',
+      'conn.connect_homey_btn': '🔌 Homey verbinden & speichern',
+      'conn.ha_url_placeholder': 'Home Assistant URL (z.B. http://192.168.178.50:8123)',
+      'conn.ha_token_placeholder': 'Long-Lived Access Token (Profil -> Sicherheit)',
+      'conn.connect_ha_btn': '🔌 Home Assistant verbinden & speichern',
+      'conn.hint': '💡 <strong>Key:</strong> <code>my.homey.app</code> → Zahnrad → <em>API-Keys</em> → <em>Neuer API-Key</em>.',
+      'conn.ha_hint': '💡 <strong>Token:</strong> In Home Assistant unten links auf dein <em>Profil</em> → Tab <em>Sicherheit</em> → <em>Langlebige Zugangs-Token</em>.',
       'conn.widget_title': '📱 Homey Dashboard Widget',
       'conn.widget_hint': 'In der Homey App: <strong>Dashboards → Stift → Widget (+) → Web</strong>:',
       'conn.config_title': '💾 Konfiguration (config.json)',
@@ -50,7 +60,7 @@
 
       // Tab 2: Geräte
       'dev.title': '🔌 Räume & Geräte-Verknüpfung',
-      'dev.hint': 'Klicke auf ein Gerät zum Schalten oder weise ihm im Dropdown dein echtes Homey-Gerät zu.',
+      'dev.hint': 'Klicke auf ein Gerät zum Schalten oder weise ihm im Dropdown dein echtes Gerät (Homey / Home Assistant) zu.',
 
       // Tab 3: Optik
       'disp.title': '🖼️ Hintergrund & Wallpaper-Stil',
@@ -163,12 +173,22 @@
 
       // Tab 1: Connect & Language
       'conn.title': '🔗 Live Homey Pro Connection',
+      'conn.bridges_title': '🔗 Smart Home Bridges (Connectors)',
+      'conn.bridges_hint': 'Use Homey Pro, Home Assistant, or both bridges at the same time.',
+      'conn.homey_title': '🌐 Homey Pro',
+      'conn.ha_title': '🏠 Home Assistant',
+      'conn.bridge_off': 'Off',
       'conn.offline': 'Simulation (Offline)',
       'conn.online': 'Connected',
       'conn.ip_placeholder': 'Homey Pro IP address (e.g. 192.168.178.50)',
       'conn.token_placeholder': 'Homey API Key (my.homey.app -> Settings -> API Keys)',
       'conn.connect_btn': '🔌 Connect & save to config.json',
-      'conn.hint': '💡 <strong>How to get your key:</strong> Open <code>my.homey.app</code> → Gear icon bottom-left → <em>API Keys</em> → <em>New API Key</em>. Changes are saved automatically to <code>config.json</code>.',
+      'conn.connect_homey_btn': '🔌 Connect Homey & save',
+      'conn.ha_url_placeholder': 'Home Assistant URL (e.g. http://192.168.178.50:8123)',
+      'conn.ha_token_placeholder': 'Long-Lived Access Token (Profile -> Security)',
+      'conn.connect_ha_btn': '🔌 Connect Home Assistant & save',
+      'conn.hint': '💡 <strong>Key:</strong> <code>my.homey.app</code> → Gear → <em>API Keys</em> → <em>New API Key</em>.',
+      'conn.ha_hint': '💡 <strong>Token:</strong> In Home Assistant bottom-left <em>Profile</em> → <em>Security</em> tab → <em>Long-Lived Access Tokens</em>.',
       'conn.widget_title': '📱 Homey Dashboard Widget',
       'conn.widget_hint': 'In the Homey App: <strong>Dashboards → Pencil → Widget (+) → Web</strong>:',
       'conn.config_title': '💾 Configuration (config.json)',
@@ -181,7 +201,7 @@
 
       // Tab 2: Devices
       'dev.title': '🔌 Rooms & Device Mapping',
-      'dev.hint': 'Click a device to toggle it or link it to your real Homey device via the dropdown.',
+      'dev.hint': 'Click a device to toggle it or link it to your real device (Homey / Home Assistant) via the dropdown.',
 
       // Tab 3: Look
       'disp.title': '🖼️ Background & Wallpaper Style',

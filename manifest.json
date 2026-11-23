@@ -1,7 +1,7 @@
 {
-  "name": "Homey 3D Living",
-  "short_name": "Homey 3D",
-  "description": "Interaktiver 3D-Grundriss & Smart Home Steuerung für Homey Pro",
+  "name": "HomePlan 3D",
+  "short_name": "HomePlan 3D",
+  "description": "Interaktiver 3D-Grundriss & Smart Home Steuerung für Homey Pro & Home Assistant",
   "id": "./index.html",
   "start_url": "./index.html?pwa=1&bg=bloom&grid=1&pedestal=0&shadow=0",
   "scope": "./",

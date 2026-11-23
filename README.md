@@ -1,16 +1,17 @@
-# 🏠 Homey 3D · Living
+# 🏠 HomePlan 3D
 
 [![Three.js](https://img.shields.io/badge/Three.js-r128-000000?logo=threedotjs)](https://threejs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A516-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-REST%20API-18BCF2?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
 [![Homey Pro](https://img.shields.io/badge/Homey%20Pro-Live%20API-00A4E4)](https://homey.app/)
 [![Languages](https://img.shields.io/badge/Languages-DE%20%7C%20EN-blue)](#)
 [![PWA Ready](https://img.shields.io/badge/PWA-Ready-5A0FC8)](https://web.dev/progressive-web-apps/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-Ein interaktives **3D-Smart-Home-Dashboard mit eigenem 3D-Haus-Editor** für **Homey Pro** auf Basis von Three.js.  
+Ein interaktives **3D-Smart-Home-Dashboard mit eigenem 3D-Haus-Editor** für **Home Assistant** und **Homey Pro** auf Basis von Three.js.  
 *Hinweis: Diese Anwendung ist komplett **vibecoded** - entstanden in interaktiven KI-Sessions als pragmatisches Smart-Home-Projekt.*
 
-Die gesamte Wohnung lässt sich frei drehen, zoomen, im **First-Person-Rundgang** begehen und direkt im 3D-Raum steuern - optimiert für Desktop, Tablet, Smartphone (PWA), **Lively Wallpaper** und **Homey Dashboards**.
+Die gesamte Wohnung lässt sich frei drehen, zoomen, im **First-Person-Rundgang** begehen und direkt im 3D-Raum steuern - optimiert für Desktop, Tablet, Smartphone (PWA), **Lively Wallpaper** und **Smart-Home-Dashboards**.
 
 ---
 
@@ -21,10 +22,11 @@ Die gesamte Wohnung lässt sich frei drehen, zoomen, im **First-Person-Rundgang*
   - **Grundriss bauen:** Räume (mit verschiedenen Bodenbelägen), Außen-/Innen-/Glaswände, Fenster und schwenkbare Türen
   - **Einrichten & Geräte:** Möbel, Smart-Home-Geräte (Lichter, LEDs, Sensoren, TV, Speaker, Hub), bis zu **5 Wandbilder pro Haus** (mit automatischem Wand-Snap) und einen eigenen **Rundgang-Startpunkt**
   - **Direkte 3D-Bearbeitung:** Objekte im 3D-Modell anklicken, per **Drag & Drop** verschieben, drehen (`R` oder Buttons), umbenennen und gezielt löschen
-- **Homey Pro Live-Steuerung & Sync:**
+- **Multi-Bridge Live-Steuerung (Homey Pro & Home Assistant):**
+  - Nutze **Homey Pro**, **Home Assistant** oder **beide Bridges gleichzeitig** als Connectoren
   - Geräte direkt im 3D-Modell oder über die Sidebar schalten, dimmen und RGB-Farben anpassen
   - **Animierte 3D-Rolladen (`blinds`):** Realistische Rolladenkästen, Führungsschienen und Lamellen-Panzer direkt an Fenstern (mit Live-Position & Fahrtrichtung)
-  - Geräte-Verknüpfung (Mapping) zwischen 3D-Objekten und deinen echten Homey-Geräten
+  - Geräte-Verknüpfung (Mapping) zwischen 3D-Objekten und deinen echten Homey-Geräten oder Home-Assistant-Entities
   - **Schneller Start:** `/api/bootstrap.js` + `localStorage`-Cache für verzögerungsfreies Laden
 - **Live Smart-Home Übersicht HUD & Leistungsverlauf:**
   - Kompaktes HUD unten links mit Uhrzeit, Lichter-Zähler (inkl. *Alle aus* per Klick), Live-Stromverbrauch in Watt samt **SVG-Sparkline-Verlauf**, Rolladen- & Saugroboter-Status, Raumtemperaturen und aktiver Medienwiedergabe
@@ -43,7 +45,7 @@ Die gesamte Wohnung lässt sich frei drehen, zoomen, im **First-Person-Rundgang*
 ## 📁 Projektstruktur
 
 ```text
-homey-3d/
+homeplan-3d/
 ├── index.html              # Haupt-App & UI (Top-Dock, Sidebar, 4-Schritte-Editor)
 ├── css/
 │   └── styles.css          # Glassmorphism-, Theme-, HUD- & Editor-Styles
@@ -51,10 +53,11 @@ homey-3d/
 │   ├── i18n.js             # Mehrsprachigkeit (DE / EN, Browser-Auto-Detect)
 │   ├── scene-core.js       # Three.js Szene, Themes, Materialien, Wände, Rolladen & Wandbilder
 │   ├── devices-3d.js       # 3D-Geräte-Meshes, Lichter, Halos & Control-Card
-│   ├── homey-api.js        # Homey Pro API-Client, Sync, HUD, Sicherheits-System & Mapping
+│   ├── ha-connector.js     # Home Assistant REST-API Connector & Entity-Mapping
+│   ├── homey-api.js        # Multi-Bridge API-Client (Homey & HA), Sync, HUD & Sicherheits-System
 │   ├── animations-fpv.js   # Render-Loop, Animationen, Raycasting & First-Person-Rundgang
 │   └── house-editor.js     # 3D-Haus-Editor (Vorlagen, Drag & Drop, Inspector, Export/Import)
-├── server.js               # Node.js HTTP-Server mit /api/bootstrap.js & /api/config
+├── server.js               # Node.js HTTP-Server mit /api/bootstrap.js, /api/config & /api/proxy
 ├── config.example.json     # Saubere Vorlage für die Konfiguration
 ├── config.json             # (Lokal, in .gitignore) Deine Homey-IP, API-Key, Mapping & Häuser
 ├── local/                  # (Optional & in .gitignore) Lokale Custom-Skripte / Presets

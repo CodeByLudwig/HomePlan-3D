@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -11,6 +12,10 @@ const DEFAULT_CONFIG = {
   connections: {
     homey: {
       ip: '',
+      token: ''
+    },
+    homeassistant: {
+      url: '',
       token: ''
     }
   },
@@ -47,6 +52,8 @@ const MIME_TYPES = {
 function mergeWithDefaults(raw = {}) {
   const ip = (raw.connections && raw.connections.homey && raw.connections.homey.ip) ?? raw.ip ?? '';
   const token = (raw.connections && raw.connections.homey && raw.connections.homey.token) ?? raw.token ?? '';
+  const haUrl = (raw.connections && raw.connections.homeassistant && raw.connections.homeassistant.url) ?? '';
+  const haToken = (raw.connections && raw.connections.homeassistant && raw.connections.homeassistant.token) ?? '';
   return {
     ...DEFAULT_CONFIG,
     ...raw,
@@ -61,6 +68,12 @@ function mergeWithDefaults(raw = {}) {
         ...((raw.connections && raw.connections.homey) || {}),
         ip,
         token
+      },
+      homeassistant: {
+        ...DEFAULT_CONFIG.connections.homeassistant,
+        ...((raw.connections && raw.connections.homeassistant) || {}),
+        url: haUrl,
+        token: haToken
       }
     },
     mapping: {
@@ -110,6 +123,10 @@ function writeConfig(newData) {
         homey: {
           ...current.connections.homey,
           ...(newData.connections.homey || {})
+        },
+        homeassistant: {
+          ...current.connections.homeassistant,
+          ...(newData.connections.homeassistant || {})
         }
       }
     : { ...current.connections };
@@ -149,11 +166,65 @@ function getLocalIPv4Addresses() {
   return addresses;
 }
 
+function forwardProxyRequest(targetUrl, method, headers, bodyData, res) {
+  let parsedTarget;
+  try {
+    parsedTarget = new URL(targetUrl);
+    if (parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') {
+      throw new Error('Nur http/https erlaubt');
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Ungültige Ziel-URL: ' + err.message }));
+    return;
+  }
+
+  const client = parsedTarget.protocol === 'https:' ? https : http;
+  const reqHeaders = { ...(headers || {}) };
+  const payload = bodyData != null ? (typeof bodyData === 'string' ? bodyData : JSON.stringify(bodyData)) : null;
+  if (payload !== null && !reqHeaders['Content-Length'] && !reqHeaders['content-length']) {
+    reqHeaders['Content-Length'] = Buffer.byteLength(payload);
+  }
+
+  const proxyReq = client.request(
+    {
+      hostname: parsedTarget.hostname,
+      port: parsedTarget.port || (parsedTarget.protocol === 'https:' ? 443 : 80),
+      path: parsedTarget.pathname + parsedTarget.search,
+      method: (method || 'GET').toUpperCase(),
+      headers: reqHeaders,
+      timeout: 8000
+    },
+    (proxyRes) => {
+      const chunks = [];
+      proxyRes.on('data', (c) => chunks.push(c));
+      proxyRes.on('end', () => {
+        const respBody = Buffer.concat(chunks);
+        res.writeHead(proxyRes.statusCode || 200, {
+          'Content-Type': proxyRes.headers['content-type'] || 'application/json; charset=utf-8'
+        });
+        res.end(respBody);
+      });
+    }
+  );
+
+  proxyReq.on('timeout', () => proxyReq.destroy(new Error('Proxy-Timeout')));
+  proxyReq.on('error', (err) => {
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+  });
+
+  if (payload !== null) proxyReq.write(payload);
+  proxyReq.end();
+}
+
 const server = http.createServer((req, res) => {
   // CORS erlauben, damit auch eine lokal geöffnete file:/// Seite Einstellungen synchronisieren kann
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -162,6 +233,21 @@ const server = http.createServer((req, res) => {
   }
 
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  if (urlObj.pathname === '/api/proxy' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        const { url, method, headers, body: targetBody } = JSON.parse(body || '{}');
+        forwardProxyRequest(url, method, headers, targetBody, res);
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
 
   if (urlObj.pathname === '/api/bootstrap.js') {
     const cfg = readConfig();
@@ -233,7 +319,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Homey 3D Dashboard Server laeuft auf:`);
+  console.log(`HomePlan 3D Server laeuft auf:`);
   console.log(`  Lokal:   http://localhost:${PORT}/`);
   for (const ip of getLocalIPv4Addresses()) {
     console.log(`  Netzwerk: http://${ip}:${PORT}/?kiosk=1`);

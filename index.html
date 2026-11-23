@@ -5,23 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Homey 3D" />
-  <meta name="application-name" content="Homey 3D Living" />
+  <meta name="apple-mobile-web-app-title" content="HomePlan 3D" />
+  <meta name="application-name" content="HomePlan 3D" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0c0f16" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <link rel="apple-touch-icon" sizes="180x180" href="icon-192.png" />
-  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
-  <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
-  <link rel="apple-touch-icon" href="icon-512.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
-  <link rel="icon" type="image/svg+xml" href="icon.svg" />
-  <link rel="manifest" href="manifest.json?v=2" />
-  <title>Homey 3D · Living</title>
-  <link rel="stylesheet" href="css/styles.css?v=20261121k" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-192.png?v=20261123" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png?v=20261123" />
+  <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png?v=20261123" />
+  <link rel="apple-touch-icon" href="icon-512.png?v=20261123" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg?v=20261123b" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=20261123" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=20261123" />
+  <link rel="manifest" href="manifest.json?v=3" />
+  <title>HomePlan 3D</title>
+  <link rel="stylesheet" href="css/styles.css?v=20261123d" />
 </head>
 <body>
 
@@ -211,7 +211,7 @@
     <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
       <div>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <h1 style="margin: 0;">✨ Homey 3D</h1>
+          <h1 style="margin: 0;">✨ HomePlan 3D</h1>
           <span id="app-version-badge" style="font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: rgba(59, 130, 246, 0.18); border: 1px solid rgba(59, 130, 246, 0.4); color: #93c5fd;">v1.1.0</span>
         </div>
         <p data-i18n="sidebar.subtitle">Steuere dein Smart Home live im 3D-Grundriss &amp; passe dein Zuhause flexibel an.</p>
@@ -238,18 +238,72 @@
     <div id="tab-conn" class="sidebar-tab-panel active">
       <div class="section">
         <div class="section-title">
-          <span data-i18n="conn.title">🔗 Live-Verbindung zu Homey Pro</span>
+          <span data-i18n="conn.bridges_title">🔗 Smart-Home Bridges (Connectoren)</span>
           <span id="conn-status" class="conn-badge" data-i18n="conn.offline">Simulation (Offline)</span>
         </div>
-        <input type="text" id="homey-ip" class="input-field" data-i18n-placeholder="conn.ip_placeholder" placeholder="Homey Pro IP-Adresse (z.B. 192.168.178.50)" />
-        <input type="password" id="homey-token" class="input-field" data-i18n-placeholder="conn.token_placeholder" placeholder="Homey API-Key (aus my.homey.app -> Einstellungen -> API Keys)" />
-        <div class="btn-row">
-          <button class="success" onclick="connectToHomey()" data-i18n="conn.connect_btn">
-            🔌 Verbinden &amp; in config.json speichern
-          </button>
+        <div data-i18n="conn.bridges_hint" style="font-size: 0.72rem; color: var(--muted); line-height: 1.35; margin-bottom: 10px;">
+          Nutze Homey Pro, Home Assistant oder beide Bridges gleichzeitig.
         </div>
-        <div data-i18n-html="conn.hint" style="font-size: 0.72rem; color: var(--muted); line-height: 1.35;">
-          💡 <strong>So bekommst du den Key:</strong> Öffne <code>my.homey.app</code> → Zahnrad unten links → <em>API-Keys</em> → <em>Neuer API-Key</em>. Änderungen werden automatisch in <code>config.json</code> gesichert.
+
+        <!-- Homey Pro Connector -->
+        <div id="bridge-card-homey" class="bridge-card bridge-card--homey">
+          <div class="bridge-card-header">
+            <div class="bridge-brand">
+              <div class="bridge-logo bridge-logo--homey" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="9.5" stroke="#38bdf8" stroke-width="1.8" opacity="0.9"/>
+                  <path d="M7.5 12.2L12 8.2l4.5 4v4.3a.8.8 0 0 1-.8.8h-2.4v-3h-2.6v3H8.3a.8.8 0 0 1-.8-.8v-4.3z" fill="#f8fafc"/>
+                </svg>
+              </div>
+              <div class="bridge-brand-text">
+                <span class="bridge-name">Homey Pro</span>
+                <span class="bridge-sub">Athom Smart Home Bridge</span>
+              </div>
+            </div>
+            <span id="conn-status-homey" class="conn-badge" data-i18n="conn.bridge_off">Aus</span>
+          </div>
+          <input type="text" id="homey-ip" class="input-field" data-i18n-placeholder="conn.ip_placeholder" placeholder="Homey Pro IP-Adresse (z.B. 192.168.178.50)" />
+          <input type="password" id="homey-token" class="input-field" data-i18n-placeholder="conn.token_placeholder" placeholder="Homey API-Key (aus my.homey.app -> Einstellungen -> API Keys)" />
+          <div class="btn-row" style="margin-bottom: 2px;">
+            <button class="bridge-btn bridge-btn--homey" onclick="connectToHomey()" data-i18n="conn.connect_homey_btn">
+              🔌 Homey verbinden &amp; speichern
+            </button>
+          </div>
+          <div class="bridge-hint" data-i18n-html="conn.hint">
+            💡 <strong>Key:</strong> <code>my.homey.app</code> → Zahnrad → <em>API-Keys</em> → <em>Neuer API-Key</em>.
+          </div>
+        </div>
+
+        <!-- Home Assistant Connector -->
+        <div id="bridge-card-ha" class="bridge-card bridge-card--ha">
+          <div class="bridge-card-header">
+            <div class="bridge-brand">
+              <div class="bridge-logo bridge-logo--ha" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3.2L3.5 10.6h2.2v9.2h12.6v-9.2h2.2L12 3.2z" fill="#ffffff" fill-opacity="0.95"/>
+                  <path d="M12 17.8v-6.2M12 13.8l-2.6-2.2M12 15.2l2.6-2.2" stroke="#0284c7" stroke-width="1.6" stroke-linecap="round"/>
+                  <circle cx="12" cy="10.4" r="1.15" fill="#0284c7"/>
+                  <circle cx="9.1" cy="11.4" r="1.05" fill="#0284c7"/>
+                  <circle cx="14.9" cy="12.8" r="1.05" fill="#0284c7"/>
+                </svg>
+              </div>
+              <div class="bridge-brand-text">
+                <span class="bridge-name">Home Assistant</span>
+                <span class="bridge-sub">Open Source Home Automation</span>
+              </div>
+            </div>
+            <span id="conn-status-ha" class="conn-badge" data-i18n="conn.bridge_off">Aus</span>
+          </div>
+          <input type="text" id="ha-url" class="input-field" data-i18n-placeholder="conn.ha_url_placeholder" placeholder="Home Assistant URL (z.B. http://192.168.178.50:8123)" />
+          <input type="password" id="ha-token" class="input-field" data-i18n-placeholder="conn.ha_token_placeholder" placeholder="Long-Lived Access Token (Profil -> Sicherheit)" />
+          <div class="btn-row" style="margin-bottom: 2px;">
+            <button class="bridge-btn bridge-btn--ha" onclick="connectToHomeAssistant()" data-i18n="conn.connect_ha_btn">
+              🔌 Home Assistant verbinden &amp; speichern
+            </button>
+          </div>
+          <div class="bridge-hint" data-i18n-html="conn.ha_hint">
+            💡 <strong>Token:</strong> In Home Assistant unten links auf dein <em>Profil</em> → Tab <em>Sicherheit</em> → <em>Langlebige Zugangs-Token</em>.
+          </div>
         </div>
       </div>
 
@@ -546,7 +600,8 @@
   <script src="js/i18n.js?v=20261121k"></script>
   <script src="js/scene-core.js?v=20261121m"></script>
   <script src="js/devices-3d.js?v=20261121m"></script>
-  <script src="js/homey-api.js?v=20261121m"></script>
+  <script src="js/ha-connector.js?v=20261123a"></script>
+  <script src="js/homey-api.js?v=20261123d"></script>
   <script src="js/animations-fpv.js?v=20261121k"></script>
   <script src="local/wohnung-daniel.js?v=20261121k"></script>
   <script src="js/house-editor.js?v=20261121k"></script>

@@ -1,28 +1,85 @@
 // =========================================================================
-// 5. SIDEBAR, STEUERUNG & HOMEY PRO LIVE-API ANBINDUNG
+// 5. SIDEBAR, STEUERUNG & MULTI-BRIDGE LIVE-API (HOMEY PRO & HOME ASSISTANT)
 // =========================================================================
 let homeyConnected = false;
 let homeyBaseUrl = '';
 let homeyToken = '';
 let homeyDevicesList = []; // Array aus { id, name, zoneName, capabilitiesObj }
-let deviceMapping = {};    // 3D-Device-ID -> Homey-Device-ID
+
+let haConnected = false;
+let haBaseUrl = '';
+let haToken = '';
+let haEntitiesList = [];   // Array aus Home Assistant Entities
+let haEntitiesById = {};   // Map: entity_id -> HA Entity
+
+let deviceMapping = {};    // 3D-Device-ID -> 'homey:<id>' | 'ha:<entity_id>' (oder altes Format '<homey_id>')
 let pollTimer = null;
 let activeControlDevId = null;
 let dimDebounceTimer = null;
+
+function parseMappingTarget(mappedId) {
+  if (!mappedId || typeof mappedId !== 'string') return null;
+  if (mappedId.startsWith('ha:')) {
+    const rawId = mappedId.slice(3);
+    return { bridge: 'ha', rawId, uid: `ha:${rawId}` };
+  }
+  if (mappedId.startsWith('homey:')) {
+    const rawId = mappedId.slice(6);
+    return { bridge: 'homey', rawId, uid: `homey:${rawId}` };
+  }
+  return { bridge: 'homey', rawId: mappedId, uid: `homey:${mappedId}` };
+}
+
+function updateConnectionBadges() {
+  const homeyCard = document.getElementById('bridge-card-homey');
+  if (homeyCard) homeyCard.classList.toggle('is-connected', homeyConnected);
+  const haCard = document.getElementById('bridge-card-ha');
+  if (haCard) haCard.classList.toggle('is-connected', haConnected);
+
+  const homeyBadge = document.getElementById('conn-status-homey');
+  if (homeyBadge) {
+    homeyBadge.textContent = homeyConnected ? `Live (${homeyDevicesList.length})` : 'Aus';
+    homeyBadge.classList.toggle('connected', homeyConnected);
+  }
+  const haBadge = document.getElementById('conn-status-ha');
+  if (haBadge) {
+    haBadge.textContent = haConnected ? `Live (${haEntitiesList.length})` : 'Aus';
+    haBadge.classList.toggle('connected', haConnected);
+  }
+  const statusBadge = document.getElementById('conn-status');
+  if (statusBadge) {
+    const parts = [];
+    if (homeyConnected) parts.push(`Homey (${homeyDevicesList.length})`);
+    if (haConnected) parts.push(`HA (${haEntitiesList.length})`);
+    if (parts.length > 0) {
+      statusBadge.textContent = `Live: ${parts.join(' · ')}`;
+      statusBadge.classList.add('connected');
+    } else {
+      statusBadge.textContent = window.t ? window.t('conn.offline', 'Simulation (Offline)') : 'Simulation (Offline)';
+      statusBadge.classList.remove('connected');
+    }
+  }
+}
 
 // Standard-Konfiguration (wird durch localStorage oder /api/config aus config.json überschrieben)
 const EMBEDDED_DEFAULT_CONFIG = {
   ip: "",
   token: "",
+  haUrl: "",
+  haToken: "",
   mapping: {}
 };
 
 try {
   const savedIp = localStorage.getItem('homey_3d_ip') || EMBEDDED_DEFAULT_CONFIG.ip;
   const savedToken = localStorage.getItem('homey_3d_token') || EMBEDDED_DEFAULT_CONFIG.token;
+  const savedHaUrl = localStorage.getItem('homey_3d_ha_url') || EMBEDDED_DEFAULT_CONFIG.haUrl;
+  const savedHaToken = localStorage.getItem('homey_3d_ha_token') || EMBEDDED_DEFAULT_CONFIG.haToken;
   const savedMap = localStorage.getItem('homey_3d_mapping');
-  if (savedIp) document.getElementById('homey-ip').value = savedIp;
-  if (savedToken) document.getElementById('homey-token').value = savedToken;
+  if (savedIp && document.getElementById('homey-ip')) document.getElementById('homey-ip').value = savedIp;
+  if (savedToken && document.getElementById('homey-token')) document.getElementById('homey-token').value = savedToken;
+  if (savedHaUrl && document.getElementById('ha-url')) document.getElementById('ha-url').value = savedHaUrl;
+  if (savedHaToken && document.getElementById('ha-token')) document.getElementById('ha-token').value = savedHaToken;
   if (savedMap) {
     deviceMapping = { ...EMBEDDED_DEFAULT_CONFIG.mapping, ...JSON.parse(savedMap) };
   } else {
@@ -158,8 +215,8 @@ window.rebuildHouseScene = function (houseCfg) {
   if (typeof window.rebuildDeviceRoomMap === 'function') window.rebuildDeviceRoomMap();
   turnOffUnassignedLights();
   restoreCachedDeviceStates();
-  if (homeyConnected) {
-    syncFromHomeyOnce();
+  if (homeyConnected || haConnected) {
+    syncAllBridgesOnce();
   }
   updateHouseModeBadge(houseCfg);
   requestSidebarRender(true);
@@ -189,13 +246,23 @@ window._initialHouseBuilt = false;
 if (_bootCfg) {
   const bIp = (_bootCfg.connections && _bootCfg.connections.homey && _bootCfg.connections.homey.ip) || _bootCfg.ip || '';
   const bToken = (_bootCfg.connections && _bootCfg.connections.homey && _bootCfg.connections.homey.token) || _bootCfg.token || '';
-  if (bIp && !document.getElementById('homey-ip').value) {
+  const bHaUrl = (_bootCfg.connections && _bootCfg.connections.homeassistant && _bootCfg.connections.homeassistant.url) || '';
+  const bHaToken = (_bootCfg.connections && _bootCfg.connections.homeassistant && _bootCfg.connections.homeassistant.token) || '';
+  if (bIp && document.getElementById('homey-ip') && !document.getElementById('homey-ip').value) {
     document.getElementById('homey-ip').value = bIp;
     try { localStorage.setItem('homey_3d_ip', bIp); } catch (e) {}
   }
-  if (bToken && !document.getElementById('homey-token').value) {
+  if (bToken && document.getElementById('homey-token') && !document.getElementById('homey-token').value) {
     document.getElementById('homey-token').value = bToken;
     try { localStorage.setItem('homey_3d_token', bToken); } catch (e) {}
+  }
+  if (bHaUrl && document.getElementById('ha-url') && !document.getElementById('ha-url').value) {
+    document.getElementById('ha-url').value = bHaUrl;
+    try { localStorage.setItem('homey_3d_ha_url', bHaUrl); } catch (e) {}
+  }
+  if (bHaToken && document.getElementById('ha-token') && !document.getElementById('ha-token').value) {
+    document.getElementById('ha-token').value = bHaToken;
+    try { localStorage.setItem('homey_3d_ha_token', bHaToken); } catch (e) {}
   }
   if (_bootCfg.mapping && Object.keys(_bootCfg.mapping).length > 0) {
     deviceMapping = { ..._bootCfg.mapping, ...deviceMapping };
@@ -243,10 +310,15 @@ function collectCurrentSettings() {
 async function pushConfigToServer(showNotification = false) {
   if (!window.location.protocol.startsWith('http') && window.location.hostname !== 'localhost') return;
   try {
-    const ip = document.getElementById('homey-ip').value.trim() || localStorage.getItem('homey_3d_ip') || '';
-    const token = document.getElementById('homey-token').value.trim() || localStorage.getItem('homey_3d_token') || '';
+    const ip = (document.getElementById('homey-ip')?.value || '').trim() || localStorage.getItem('homey_3d_ip') || '';
+    const token = (document.getElementById('homey-token')?.value || '').trim() || localStorage.getItem('homey_3d_token') || '';
+    const haUrl = (document.getElementById('ha-url')?.value || '').trim() || localStorage.getItem('homey_3d_ha_url') || '';
+    const haToken = (document.getElementById('ha-token')?.value || '').trim() || localStorage.getItem('homey_3d_ha_token') || '';
     const payload = {
-      connections: { homey: { ip, token } },
+      connections: {
+        homey: { ip, token },
+        homeassistant: { url: haUrl, token: haToken }
+      },
       ip,
       token,
       mapping: deviceMapping,
@@ -277,25 +349,39 @@ async function pullConfigFromServerIfNeeded() {
     }
     if (!res || !res.ok) return;
     const cfg = await res.json();
-    let changed = false;
+    let changedHomey = false;
+    let changedHa = false;
 
     const cfgIp = (cfg.connections && cfg.connections.homey && cfg.connections.homey.ip) || cfg.ip || '';
     const cfgToken = (cfg.connections && cfg.connections.homey && cfg.connections.homey.token) || cfg.token || '';
+    const cfgHaUrl = (cfg.connections && cfg.connections.homeassistant && cfg.connections.homeassistant.url) || '';
+    const cfgHaToken = (cfg.connections && cfg.connections.homeassistant && cfg.connections.homeassistant.token) || '';
 
-    if (cfgIp && !document.getElementById('homey-ip').value) {
+    if (cfgIp && document.getElementById('homey-ip') && !document.getElementById('homey-ip').value) {
       document.getElementById('homey-ip').value = cfgIp;
       localStorage.setItem('homey_3d_ip', cfgIp);
-      changed = true;
+      changedHomey = true;
     }
-    if (cfgToken && !document.getElementById('homey-token').value) {
+    if (cfgToken && document.getElementById('homey-token') && !document.getElementById('homey-token').value) {
       document.getElementById('homey-token').value = cfgToken;
       localStorage.setItem('homey_3d_token', cfgToken);
-      changed = true;
+      changedHomey = true;
+    }
+    if (cfgHaUrl && document.getElementById('ha-url') && !document.getElementById('ha-url').value) {
+      document.getElementById('ha-url').value = cfgHaUrl;
+      localStorage.setItem('homey_3d_ha_url', cfgHaUrl);
+      changedHa = true;
+    }
+    if (cfgHaToken && document.getElementById('ha-token') && !document.getElementById('ha-token').value) {
+      document.getElementById('ha-token').value = cfgHaToken;
+      localStorage.setItem('homey_3d_ha_token', cfgHaToken);
+      changedHa = true;
     }
     if (cfg.mapping && Object.keys(cfg.mapping).length > 0) {
       deviceMapping = { ...cfg.mapping, ...deviceMapping };
       localStorage.setItem('homey_3d_mapping', JSON.stringify(deviceMapping));
-      changed = true;
+      changedHomey = true;
+      changedHa = true;
     }
     if (cfg.settings) {
       if (cfg.settings.theme && typeof setBackgroundTheme === 'function') {
@@ -370,8 +456,11 @@ async function pullConfigFromServerIfNeeded() {
     if (window.HouseEditor && typeof window.HouseEditor.renderHouseSelector === 'function') {
       window.HouseEditor.renderHouseSelector();
     }
-    if (changed && document.getElementById('homey-ip').value && document.getElementById('homey-token').value) {
-      connectToHomey();
+    if (changedHomey && document.getElementById('homey-ip')?.value && document.getElementById('homey-token')?.value) {
+      connectToHomey(true);
+    }
+    if (changedHa && document.getElementById('ha-url')?.value && document.getElementById('ha-token')?.value) {
+      connectToHomeAssistant(true);
     }
   } catch (e) {}
 }
@@ -380,8 +469,12 @@ function exportFullConfig() {
   const data = {
     connections: {
       homey: {
-        ip: document.getElementById('homey-ip').value.trim(),
-        token: document.getElementById('homey-token').value.trim()
+        ip: (document.getElementById('homey-ip')?.value || '').trim(),
+        token: (document.getElementById('homey-token')?.value || '').trim()
+      },
+      homeassistant: {
+        url: (document.getElementById('ha-url')?.value || '').trim(),
+        token: (document.getElementById('ha-token')?.value || '').trim()
       }
     },
     mapping: deviceMapping,
@@ -404,13 +497,23 @@ function importFullConfig(inputEl) {
       const cfg = JSON.parse(reader.result);
       const ip = (cfg.connections && cfg.connections.homey && cfg.connections.homey.ip) || cfg.ip || '';
       const token = (cfg.connections && cfg.connections.homey && cfg.connections.homey.token) || cfg.token || '';
-      if (ip) {
+      const haUrl = (cfg.connections && cfg.connections.homeassistant && cfg.connections.homeassistant.url) || '';
+      const haToken = (cfg.connections && cfg.connections.homeassistant && cfg.connections.homeassistant.token) || '';
+      if (ip && document.getElementById('homey-ip')) {
         document.getElementById('homey-ip').value = ip;
         localStorage.setItem('homey_3d_ip', ip);
       }
-      if (token) {
+      if (token && document.getElementById('homey-token')) {
         document.getElementById('homey-token').value = token;
         localStorage.setItem('homey_3d_token', token);
+      }
+      if (haUrl && document.getElementById('ha-url')) {
+        document.getElementById('ha-url').value = haUrl;
+        localStorage.setItem('homey_3d_ha_url', haUrl);
+      }
+      if (haToken && document.getElementById('ha-token')) {
+        document.getElementById('ha-token').value = haToken;
+        localStorage.setItem('homey_3d_ha_token', haToken);
       }
       if (cfg.mapping) {
         deviceMapping = cfg.mapping;
@@ -423,6 +526,7 @@ function importFullConfig(inputEl) {
       }
       pushConfigToServer(true);
       if (ip && token) connectToHomey();
+      if (haUrl && haToken) connectToHomeAssistant();
     } catch (err) {
       showToast('❌ Import fehlgeschlagen: ' + err.message);
     }
@@ -438,21 +542,21 @@ if (window.__INITIAL_CONFIG__) {
   pullConfigFromServerIfNeeded();
 }
 
-function saveMapping(dev3dId, homeyDevId) {
-  if (!homeyDevId) {
+function saveMapping(dev3dId, mappedId) {
+  if (!mappedId) {
     delete deviceMapping[dev3dId];
     const obj = deviceObjects[dev3dId];
     if (obj && (obj.data.type === 'light' || obj.data.type === 'led' || obj.data.type === 'panel_leds' || obj.data.type === 'nanoleaf')) {
       applyDeviceState(dev3dId, false);
     }
   } else {
-    deviceMapping[dev3dId] = homeyDevId;
+    deviceMapping[dev3dId] = mappedId;
   }
   try {
     localStorage.setItem('homey_3d_mapping', JSON.stringify(deviceMapping));
   } catch (e) {}
   renderSidebar();
-  syncFromHomeyOnce();
+  syncAllBridgesOnce();
   pushConfigToServer(false);
 }
 
@@ -469,11 +573,14 @@ function renderSidebar() {
   const list = document.getElementById('rooms-list');
   list.innerHTML = '';
 
-  // Map: Homey-Device-ID -> 3D-Device-ID (um zu sehen, welche schon vergeben sind)
+  // Map: Unified-UID ('homey:<id>' | 'ha:<entity_id>') -> 3D-Device-ID
   const usedBy3d = {};
-  Object.entries(deviceMapping).forEach(([d3d, hId]) => {
-    if (hId) usedBy3d[hId] = d3d;
+  Object.entries(deviceMapping).forEach(([d3d, mappedId]) => {
+    const parsed = parseMappingTarget(mappedId);
+    if (parsed) usedBy3d[parsed.uid] = d3d;
   });
+
+  const hasAnyBridge = (homeyConnected && homeyDevicesList.length > 0) || (haConnected && haEntitiesList.length > 0);
 
   ROOMS.forEach(room => {
     const group = document.createElement('div');
@@ -490,7 +597,7 @@ function renderSidebar() {
     const devList = group.querySelector(`#devlist-${room.id}`);
     room.devices.forEach(dev => {
       const wrapper = document.createElement('div');
-      wrapper.style.marginBottom = '4px';
+      wrapper.className = 'device-row-card';
 
       const item = document.createElement('div');
       item.className = `device-item ${dev.on ? 'active' : ''}`;
@@ -513,54 +620,102 @@ function renderSidebar() {
       `;
       wrapper.appendChild(item);
 
-      // Wenn mit Homey Pro verbunden: Dropdown zur Zuordnung des echten Homey-Geräts anzeigen
-      if (homeyConnected && homeyDevicesList.length > 0) {
-        const currentMappedId = deviceMapping[dev.id] || '';
+      // Wenn mindestens eine Bridge verbunden ist: Moderne Mapping-Zeile mit Bridge-Badge & Dropdown anzeigen
+      if (hasAnyBridge) {
+        const currentParsed = parseMappingTarget(deviceMapping[dev.id]);
+        const currentUid = currentParsed ? currentParsed.uid : '';
+        const mapRow = document.createElement('div');
+        mapRow.className = 'mapping-row';
+
+        const bridgePill = document.createElement('span');
+        if (currentParsed && currentParsed.bridge === 'ha') {
+          bridgePill.className = 'mapping-bridge-pill is-ha';
+          bridgePill.textContent = '🏠 HA';
+        } else if (currentParsed && currentParsed.bridge === 'homey') {
+          bridgePill.className = 'mapping-bridge-pill is-homey';
+          bridgePill.textContent = '🌐 Homey';
+        } else {
+          bridgePill.className = 'mapping-bridge-pill';
+          bridgePill.textContent = '🔗 Offen';
+        }
+
         const sel = document.createElement('select');
         sel.className = 'homey-select';
-        if (currentMappedId) {
-          sel.style.borderColor = 'rgba(16, 185, 129, 0.55)';
-          sel.style.color = '#6ee7b7';
+        if (currentParsed && currentParsed.bridge === 'ha') {
+          sel.classList.add('is-mapped-ha');
+        } else if (currentParsed && currentParsed.bridge === 'homey') {
+          sel.classList.add('is-mapped-homey');
         }
         sel.onchange = (e) => saveMapping(dev.id, e.target.value);
 
         const emptyOpt = document.createElement('option');
         emptyOpt.value = '';
-        emptyOpt.textContent = '🔗 Echtes Homey-Gerät zuordnen...';
+        emptyOpt.textContent = 'Gerät / Entity verknüpfen...';
         sel.appendChild(emptyOpt);
-
-        const freeGroup = document.createElement('optgroup');
-        freeGroup.label = '🟢 Noch freie Homey-Geräte';
 
         const usedGroup = document.createElement('optgroup');
         usedGroup.label = '✅ Bereits vergeben';
 
-        homeyDevicesList.forEach(hDev => {
-          const assignedToOther = usedBy3d[hDev.id] && usedBy3d[hDev.id] !== dev.id;
-          const opt = document.createElement('option');
-          opt.value = hDev.id;
+        if (homeyConnected && homeyDevicesList.length > 0) {
+          const homeyGroup = document.createElement('optgroup');
+          homeyGroup.label = '🌐 Homey Pro';
+          homeyDevicesList.forEach(hDev => {
+            const uid = `homey:${hDev.id}`;
+            const assignedToOther = usedBy3d[uid] && usedBy3d[uid] !== dev.id;
+            const opt = document.createElement('option');
+            opt.value = uid;
 
-          if (currentMappedId === hDev.id) {
-            opt.textContent = `✅ ${hDev.name} (Ausgewählt)`;
-            opt.selected = true;
-            freeGroup.appendChild(opt);
-          } else if (assignedToOther) {
-            const otherName = get3dDeviceNameById(usedBy3d[hDev.id]);
-            opt.textContent = `✓ ${hDev.name} [vergeben an: ${otherName}]`;
-            opt.style.color = '#64748b';
-            usedGroup.appendChild(opt);
-          } else {
-            opt.textContent = hDev.name;
-            freeGroup.appendChild(opt);
-          }
-        });
+            if (currentUid === uid) {
+              opt.textContent = `✓ ${hDev.name}`;
+              opt.selected = true;
+              homeyGroup.appendChild(opt);
+            } else if (assignedToOther) {
+              const otherName = get3dDeviceNameById(usedBy3d[uid]);
+              opt.textContent = `✓ ${hDev.name} [${otherName}]`;
+              opt.style.color = '#64748b';
+              usedGroup.appendChild(opt);
+            } else {
+              opt.textContent = hDev.name;
+              homeyGroup.appendChild(opt);
+            }
+          });
+          sel.appendChild(homeyGroup);
+        }
 
-        sel.appendChild(freeGroup);
+        if (haConnected && haEntitiesList.length > 0 && window.HAConnector) {
+          const haGroup = document.createElement('optgroup');
+          haGroup.label = '🏠 Home Assistant';
+          haEntitiesList.forEach(ent => {
+            const uid = `ha:${ent.entity_id}`;
+            const labelName = `${window.HAConnector.getEntityName(ent)} (${ent.entity_id})`;
+            const assignedToOther = usedBy3d[uid] && usedBy3d[uid] !== dev.id;
+            const opt = document.createElement('option');
+            opt.value = uid;
+
+            if (currentUid === uid) {
+              opt.textContent = `✓ ${labelName}`;
+              opt.selected = true;
+              haGroup.appendChild(opt);
+            } else if (assignedToOther) {
+              const otherName = get3dDeviceNameById(usedBy3d[uid]);
+              opt.textContent = `✓ ${labelName} [${otherName}]`;
+              opt.style.color = '#64748b';
+              usedGroup.appendChild(opt);
+            } else {
+              opt.textContent = labelName;
+              haGroup.appendChild(opt);
+            }
+          });
+          sel.appendChild(haGroup);
+        }
+
         if (usedGroup.children.length > 0) {
           sel.appendChild(usedGroup);
         }
 
-        wrapper.appendChild(sel);
+        mapRow.appendChild(bridgePill);
+        mapRow.appendChild(sel);
+        wrapper.appendChild(mapRow);
       }
 
       devList.appendChild(wrapper);
@@ -947,24 +1102,26 @@ async function setDeviceColor(id, hexColor) {
     updateBadgeVisuals(id);
   }
 
-  const mappedHomeyId = deviceMapping[id];
-  if (homeyConnected && mappedHomeyId) {
-    const hDev = homeyRawDevicesById[mappedHomeyId];
+  const mapped = parseMappingTarget(deviceMapping[id]);
+  if (mapped && mapped.bridge === 'homey' && homeyConnected) {
+    const hDev = homeyRawDevicesById[mapped.rawId];
     const caps = hDev ? (hDev.capabilitiesObj || {}) : {};
     const hsv = hexToHsv(hexColor);
 
     if (!obj.data.on && caps.onoff) {
-      sendHomeyCapability(mappedHomeyId, 'onoff', true);
+      sendHomeyCapability(mapped.rawId, 'onoff', true);
     }
     if (caps.light_mode) {
-      sendHomeyCapability(mappedHomeyId, 'light_mode', 'color');
+      sendHomeyCapability(mapped.rawId, 'light_mode', 'color');
     }
     if (caps.light_hue) {
-      sendHomeyCapability(mappedHomeyId, 'light_hue', hsv.h);
+      sendHomeyCapability(mapped.rawId, 'light_hue', hsv.h);
     }
     if (caps.light_saturation) {
-      sendHomeyCapability(mappedHomeyId, 'light_saturation', hsv.s);
+      sendHomeyCapability(mapped.rawId, 'light_saturation', hsv.s);
     }
+  } else if (mapped && mapped.bridge === 'ha' && haConnected && window.HAConnector) {
+    window.HAConnector.setColor(haBaseUrl, haToken, mapped.rawId, hexColor);
   }
 }
 
@@ -981,9 +1138,11 @@ function setDeviceDim(id, dimVal) {
     }
     const labelText = pct <= 2 ? 'Zu (0%)' : (pct >= 98 ? 'Offen (100%)' : `${pct}% offen`);
     applyDeviceState(id, dimVal < 0.98, labelText);
-    const mappedHomeyId = deviceMapping[id];
-    if (homeyConnected && mappedHomeyId) {
-      sendHomeyDimDebounced(mappedHomeyId, dimVal, 'windowcoverings_set');
+    const mapped = parseMappingTarget(deviceMapping[id]);
+    if (mapped && mapped.bridge === 'homey' && homeyConnected) {
+      sendHomeyDimDebounced(mapped.rawId, dimVal, 'windowcoverings_set');
+    } else if (mapped && mapped.bridge === 'ha' && haConnected) {
+      sendHaDimDebounced(mapped.rawId, obj.data, dimVal);
     }
     return;
   }
@@ -1007,9 +1166,11 @@ function setDeviceDim(id, dimVal) {
     document.getElementById('ctrl-status-sub').textContent = `AN · ${pct}%`;
   }
 
-  const mappedHomeyId = deviceMapping[id];
-  if (homeyConnected && mappedHomeyId) {
-    sendHomeyDimDebounced(mappedHomeyId, dimVal, 'dim');
+  const mapped = parseMappingTarget(deviceMapping[id]);
+  if (mapped && mapped.bridge === 'homey' && homeyConnected) {
+    sendHomeyDimDebounced(mapped.rawId, dimVal, 'dim');
+  } else if (mapped && mapped.bridge === 'ha' && haConnected) {
+    sendHaDimDebounced(mapped.rawId, obj.data, dimVal);
   }
 }
 
@@ -1017,6 +1178,15 @@ function sendHomeyDimDebounced(mappedHomeyId, dimVal, capName = 'dim') {
   if (dimDebounceTimer) clearTimeout(dimDebounceTimer);
   dimDebounceTimer = setTimeout(() => {
     sendHomeyCapability(mappedHomeyId, capName, dimVal);
+  }, 150);
+}
+
+function sendHaDimDebounced(entityId, dev3d, dimVal) {
+  if (dimDebounceTimer) clearTimeout(dimDebounceTimer);
+  dimDebounceTimer = setTimeout(() => {
+    if (window.HAConnector) {
+      window.HAConnector.setDim(haBaseUrl, haToken, entityId, dev3d, dimVal);
+    }
   }, 150);
 }
 
@@ -1174,7 +1344,68 @@ async function toggleDevice(id) {
   const obj = deviceObjects[id];
   if (!obj) return;
 
-  const mappedHomeyId = deviceMapping[id];
+  const mapped = parseMappingTarget(deviceMapping[id]);
+  if (!mapped) {
+    applyDeviceState(id, !obj.data.on);
+    return;
+  }
+
+  // Home Assistant Bridge
+  if (mapped.bridge === 'ha') {
+    const entity = haEntitiesById[mapped.rawId];
+    if (!haConnected || !entity || !window.HAConnector) {
+      applyDeviceState(id, !obj.data.on);
+      return;
+    }
+    const evalInfo = window.HAConnector.evaluateEntity(entity, obj.data);
+    const haName = window.HAConnector.getEntityName(entity);
+
+    if (evalInfo.mode === 'sensor') {
+      const extraStr = evalInfo.extras.length ? ` | ${evalInfo.extras.join(' | ')}` : '';
+      showToast(`${obj.data.icon} ${haName}: ${evalInfo.label}${extraStr}`);
+      await syncFromHomeAssistantOnce();
+      return;
+    }
+
+    const newState = !obj.data.on;
+    try {
+      if (evalInfo.mode === 'vacuum') {
+        window.roborockCommandGraceUntil = Date.now() + 15000;
+        applyDeviceState(id, newState, newState ? (evalInfo.cleanText || 'Saugt & Wischt') : (evalInfo.dockedText || 'Station'));
+        await window.HAConnector.controlEntity(haBaseUrl, haToken, entity, obj.data, newState, evalInfo);
+        showToast(newState ? `🤖 ${haName}: Reinigung gestartet!` : `🤖 ${haName}: Fährt zurück zur Station!`);
+        return;
+      }
+      if (evalInfo.mode === 'blinds') {
+        const currentPos = typeof obj.dim === 'number' ? obj.dim : 1.0;
+        const targetPos = currentPos > 0.5 ? 0.0 : 1.0;
+        obj.dim = targetPos;
+        const pct = Math.round(targetPos * 100);
+        applyDeviceState(id, targetPos < 0.98, targetPos <= 0.02 ? 'Zu (0%)' : 'Offen (100%)');
+        await window.HAConnector.setDim(haBaseUrl, haToken, entity.entity_id, obj.data, targetPos);
+        showToast(`🪟 ${haName}: ${pct <= 2 ? 'Fährt herunter (0% zu)' : 'Fährt hoch (100% offen)'}`);
+        return;
+      }
+      if (evalInfo.mode === 'speaker') {
+        applyDeviceState(id, newState, newState ? '▶️ Spielt' : '⏸️ Pause');
+        await window.HAConnector.controlEntity(haBaseUrl, haToken, entity, obj.data, newState, evalInfo);
+        showToast(newState ? `▶️ ${haName}: Wiedergabe` : `⏸️ ${haName}: Pause`);
+        return;
+      }
+      applyDeviceState(id, newState);
+      const ok = await window.HAConnector.controlEntity(haBaseUrl, haToken, entity, obj.data, newState, evalInfo);
+      if (!ok) {
+        showToast(`ℹ️ ${haName}: Status aktualisiert`);
+        await syncFromHomeAssistantOnce();
+      }
+    } catch (err) {
+      showToast('⚠️ Fehler bei der Kommunikation mit Home Assistant');
+    }
+    return;
+  }
+
+  // Homey Pro Bridge
+  const mappedHomeyId = mapped.rawId;
   const hDev = mappedHomeyId ? homeyRawDevicesById[mappedHomeyId] : null;
 
   // Falls kein echtes Homey-Gerät verknüpft ist: Lokale 3D-Simulation umschalten
@@ -1271,12 +1502,26 @@ async function toggleDevice(id) {
   }
 }
 
+function applyUnmappedLightsOff() {
+  Object.keys(deviceObjects).forEach(dev3dId => {
+    const obj = deviceObjects[dev3dId];
+    const isLamp = obj && (obj.data.type === 'light' || obj.data.type === 'led' || obj.data.type === 'panel_leds' || obj.data.type === 'nanoleaf');
+    if (isLamp && !deviceMapping[dev3dId]) {
+      if (obj.data.on) {
+        applyDeviceState(dev3dId, false);
+      }
+    }
+  });
+}
+
 function applyHomeyDevices(data) {
   if (!data) return;
   homeyRawDevicesById = data;
 
-  Object.entries(deviceMapping).forEach(([dev3dId, homeyId]) => {
-    const hDev = data[homeyId];
+  Object.entries(deviceMapping).forEach(([dev3dId, rawMappedId]) => {
+    const mapped = parseMappingTarget(rawMappedId);
+    if (!mapped || mapped.bridge !== 'homey') return;
+    const hDev = data[mapped.rawId];
     const obj = deviceObjects[dev3dId];
     if (!hDev || !obj) return;
     const caps = hDev.capabilitiesObj || {};
@@ -1323,17 +1568,62 @@ function applyHomeyDevices(data) {
     applyDeviceState(dev3dId, evalInfo.active, evalInfo.label);
   });
 
-  // Alle Lichter/LEDs ohne Homey-Zuweisung standardmäßig ausschalten
-  Object.keys(deviceObjects).forEach(dev3dId => {
+  applyUnmappedLightsOff();
+  saveDeviceStatesToCache();
+  if (typeof updateOverviewHud === 'function') {
+    updateOverviewHud();
+  }
+}
+
+function applyHomeAssistantEntities(byId) {
+  if (!byId || !window.HAConnector) return;
+  haEntitiesById = byId;
+
+  Object.entries(deviceMapping).forEach(([dev3dId, rawMappedId]) => {
+    const mapped = parseMappingTarget(rawMappedId);
+    if (!mapped || mapped.bridge !== 'ha') return;
+    const entity = byId[mapped.rawId];
     const obj = deviceObjects[dev3dId];
-    const isLamp = obj && (obj.data.type === 'light' || obj.data.type === 'led' || obj.data.type === 'panel_leds' || obj.data.type === 'nanoleaf');
-    if (isLamp && !deviceMapping[dev3dId]) {
-      if (obj.data.on) {
-        applyDeviceState(dev3dId, false);
+    if (!entity || !obj) return;
+
+    const evalInfo = window.HAConnector.evaluateEntity(entity, obj.data);
+
+    if (typeof evalInfo.dim === 'number') {
+      obj.dim = evalInfo.dim;
+    }
+    if (obj.data.type === 'blinds' && typeof evalInfo.position === 'number') {
+      obj.dim = evalInfo.position;
+    }
+    if (evalInfo.colorHex && dev3dId !== 'az_wandlicht' && (obj.data.type === 'led' || obj.data.type === 'nanoleaf')) {
+      obj.currentColor = evalInfo.colorHex;
+      const hexInt = parseInt(evalInfo.colorHex.replace('#', ''), 16);
+      if (!isNaN(hexInt)) {
+        obj.data.color = hexInt;
+        if (obj.light) obj.light.color.setHex(hexInt);
+        if (obj.fillLight) obj.fillLight.color.setHex(hexInt);
+        if (obj.glowMat) obj.glowMat.color.setHex(hexInt);
+        if (obj.haloMat) obj.haloMat.color.setHex(hexInt);
+        if (obj.data.type === 'nanoleaf' && obj.glowMesh) {
+          obj.glowMesh.traverse(c => {
+            if (c.isMesh && c.material && (c.userData.isBar || c.userData.isBacklight)) c.material.color.setHex(hexInt);
+          });
+        }
       }
     }
+
+    if (evalInfo.mode === 'blinds' && obj.shutterControl) {
+      obj.shutterControl.movingState = evalInfo.movingState || 'idle';
+    }
+    if (evalInfo.mode === 'vacuum' && window.roborockCommandGraceUntil) {
+      if (Date.now() < window.roborockCommandGraceUntil && evalInfo.active !== obj.data.on) {
+        return;
+      }
+      window.roborockCommandGraceUntil = 0;
+    }
+    applyDeviceState(dev3dId, evalInfo.active, evalInfo.label);
   });
 
+  applyUnmappedLightsOff();
   saveDeviceStatesToCache();
   if (typeof updateOverviewHud === 'function') {
     updateOverviewHud();
@@ -1341,8 +1631,8 @@ function applyHomeyDevices(data) {
 }
 
 async function connectToHomey(isSilent = false) {
-  let rawIp = document.getElementById('homey-ip').value.trim();
-  const token = document.getElementById('homey-token').value.trim();
+  let rawIp = (document.getElementById('homey-ip')?.value || '').trim();
+  const token = (document.getElementById('homey-token')?.value || '').trim();
   if (!rawIp || !token) {
     if (!isSilent) showToast('⚠️ Bitte Homey IP-Adresse und API-Key eingeben!');
     return;
@@ -1384,31 +1674,60 @@ async function connectToHomey(isSilent = false) {
             if (d.type === 'blinds' && (hd.class === 'windowcoverings' || hd.virtualClass === 'blinds' || n.includes('rollade'))) return true;
             return false;
           });
-          if (match) deviceMapping[d.id] = match.id;
+          if (match) deviceMapping[d.id] = `homey:${match.id}`;
         }
       });
     });
 
-    const statusBadge = document.getElementById('conn-status');
-    if (statusBadge) {
-      statusBadge.textContent = `Live verbunden (${homeyDevicesList.length} Geräte)`;
-      statusBadge.classList.add('connected');
-    }
-
-    // Live-Zustände sofort ohne redundanten zweiten Fetch anwenden!
+    updateConnectionBadges();
     applyHomeyDevices(data);
     fetchSecurityState();
-
-    // Sidebar im Hintergrund oder bei Bedarf rendern (0ms Stottern):
     requestSidebarRender();
+    scheduleNextHomeyPoll(3000);
+    if (!isSilent) {
+      pushConfigToServer(false);
+      showToast(`✅ Homey verbunden! ${homeyDevicesList.length} Geräte geladen.`);
+    }
+  } catch (err) {
+    if (!isSilent) showToast('❌ Homey-Verbindung fehlgeschlagen – prüfe IP & API-Key');
+  }
+}
 
+async function connectToHomeAssistant(isSilent = false) {
+  if (!window.HAConnector) return;
+  const rawUrl = (document.getElementById('ha-url')?.value || '').trim();
+  const token = (document.getElementById('ha-token')?.value || '').trim();
+  if (!rawUrl || !token) {
+    if (!isSilent) showToast('⚠️ Bitte Home Assistant URL und Token eingeben!');
+    return;
+  }
+
+  haBaseUrl = window.HAConnector.normalizeHaUrl(rawUrl);
+  haToken = token;
+
+  try {
+    localStorage.setItem('homey_3d_ha_url', rawUrl);
+    localStorage.setItem('homey_3d_ha_token', token);
+  } catch (e) {}
+
+  try {
+    if (!isSilent) showToast('🔄 Verbinde mit Home Assistant...');
+    const { byId, entities } = await window.HAConnector.fetchStates(haBaseUrl, haToken);
+    haEntitiesById = byId;
+    haEntitiesList = entities;
+    haConnected = true;
+
+    updateConnectionBadges();
+    applyHomeAssistantEntities(byId);
+    requestSidebarRender();
     scheduleNextHomeyPoll(3000);
 
     if (!isSilent) {
-      showToast(`✅ Verbunden! ${homeyDevicesList.length} Homey-Geräte geladen.`);
+      pushConfigToServer(false);
+      showToast(`✅ Home Assistant verbunden! ${haEntitiesList.length} Entities geladen.`);
     }
   } catch (err) {
-    if (!isSilent) showToast('❌ Verbindung fehlgeschlagen – prüfe IP & API-Key');
+    if (!isSilent) showToast('❌ Home Assistant Verbindung fehlgeschlagen – prüfe URL & Token');
   }
 }
 
@@ -1417,13 +1736,13 @@ let pollInProgress = false;
 function scheduleNextHomeyPoll(delay = 3000) {
   if (pollTimer) clearTimeout(pollTimer);
   pollTimer = setTimeout(async () => {
-    if (!homeyConnected || document.hidden || pollInProgress) {
+    if ((!homeyConnected && !haConnected) || document.hidden || pollInProgress) {
       scheduleNextHomeyPoll(delay);
       return;
     }
     pollInProgress = true;
     try {
-      await syncFromHomeyOnce();
+      await syncAllBridgesOnce();
     } catch (e) {
     } finally {
       pollInProgress = false;
@@ -1445,6 +1764,21 @@ async function syncFromHomeyOnce() {
     applyHomeyDevices(data);
     fetchSecurityState();
   } catch (e) {}
+}
+
+async function syncFromHomeAssistantOnce() {
+  if (!haConnected || document.hidden || !window.HAConnector) return;
+  try {
+    const { byId } = await window.HAConnector.fetchStates(haBaseUrl, haToken);
+    applyHomeAssistantEntities(byId);
+  } catch (e) {}
+}
+
+async function syncAllBridgesOnce() {
+  const tasks = [];
+  if (homeyConnected) tasks.push(syncFromHomeyOnce());
+  if (haConnected) tasks.push(syncFromHomeAssistantOnce());
+  if (tasks.length > 0) await Promise.all(tasks);
 }
 
 function setAllLights(state) {
@@ -1527,10 +1861,12 @@ if (!window.location.search.includes('setup=1')) {
   requestSidebarRender(true);
 }
 
-// Automatisch und vollständig asynchron mit deinem Homey Pro im Hintergrund verbinden:
-if (document.getElementById('homey-ip').value && document.getElementById('homey-token').value) {
-  // 0ms Startverzögerung – lädt sofort geräuschlos im Hintergrund
+// Automatisch und vollständig asynchron mit den konfigurierten Bridges im Hintergrund verbinden:
+if (document.getElementById('homey-ip')?.value && document.getElementById('homey-token')?.value) {
   connectToHomey(true);
+}
+if (document.getElementById('ha-url')?.value && document.getElementById('ha-token')?.value) {
+  connectToHomeAssistant(true);
 }
 
 function setCameraPreset(preset) {
@@ -1589,12 +1925,19 @@ function updateOverviewHud() {
     lightsEl.style.color = lightsOn > 0 ? '#fde047' : '#94a3b8';
   }
 
-  // 2. Gesamtleistung (W) aus allen echten Homey-Geräten mit measure_power
+  // 2. Gesamtleistung (W) aus Homey (measure_power) & Home Assistant (sensor.*power / current_power_w)
   let totalWatts = 0;
   Object.values(homeyRawDevicesById || {}).forEach(hDev => {
     const p = hDev?.capabilitiesObj?.measure_power?.value;
     if (typeof p === 'number' && Number.isFinite(p) && p > 0) {
       totalWatts += p;
+    }
+  });
+  Object.values(haEntitiesById || {}).forEach(ent => {
+    const unit = String(ent?.attributes?.unit_of_measurement || '').toLowerCase();
+    if (ent?.entity_id?.startsWith('sensor.') && unit === 'w') {
+      const p = parseFloat(ent.state);
+      if (Number.isFinite(p) && p > 0) totalWatts += p;
     }
   });
   const powerEl = document.getElementById('ov-power-val');
@@ -1627,10 +1970,19 @@ function updateOverviewHud() {
       { id: 'sz_nachttisch_sensor', label: 'SZ' }
     ];
     sensorDefs.forEach(s => {
-      const hId = deviceMapping[s.id];
-      const hDev = hId ? homeyRawDevicesById[hId] : null;
-      const t = hDev?.capabilitiesObj?.measure_temperature?.value;
-      const hum = hDev?.capabilitiesObj?.measure_humidity?.value;
+      const mapped = parseMappingTarget(deviceMapping[s.id]);
+      if (!mapped) return;
+      let t = null;
+      let hum = null;
+      if (mapped.bridge === 'homey') {
+        const hDev = homeyRawDevicesById[mapped.rawId];
+        t = hDev?.capabilitiesObj?.measure_temperature?.value;
+        hum = hDev?.capabilitiesObj?.measure_humidity?.value;
+      } else if (mapped.bridge === 'ha') {
+        const ent = haEntitiesById[mapped.rawId];
+        t = ent?.attributes?.current_temperature ?? ent?.attributes?.temperature;
+        hum = ent?.attributes?.humidity;
+      }
       if (typeof t === 'number') {
         tempEntries.push(typeof hum === 'number' ? `${s.label} ${t.toFixed(1)}°C (${Math.round(hum)}%)` : `${s.label} ${t.toFixed(1)}°C`);
       }
@@ -1643,17 +1995,37 @@ function updateOverviewHud() {
   if (mediaEl) {
     const activeMedia = [];
     ['wz_alexa', 'az_alexa'].forEach(id => {
-      const hDev = deviceMapping[id] ? homeyRawDevicesById[deviceMapping[id]] : null;
-      if (hDev?.capabilitiesObj?.speaker_playing?.value) {
-        const track = hDev.capabilitiesObj.speaker_track?.value || 'Wiedergabe';
-        const artist = hDev.capabilitiesObj.speaker_artist?.value;
-        activeMedia.push(`🎵 ${artist ? `${artist} – ${track}` : track}`);
+      const mapped = parseMappingTarget(deviceMapping[id]);
+      if (!mapped) return;
+      if (mapped.bridge === 'homey') {
+        const hDev = homeyRawDevicesById[mapped.rawId];
+        if (hDev?.capabilitiesObj?.speaker_playing?.value) {
+          const track = hDev.capabilitiesObj.speaker_track?.value || 'Wiedergabe';
+          const artist = hDev.capabilitiesObj.speaker_artist?.value;
+          activeMedia.push(`🎵 ${artist ? `${artist} – ${track}` : track}`);
+        }
+      } else if (mapped.bridge === 'ha') {
+        const ent = haEntitiesById[mapped.rawId];
+        if (ent && String(ent.state).toLowerCase() === 'playing') {
+          const track = ent.attributes?.media_title || 'Wiedergabe';
+          const artist = ent.attributes?.media_artist;
+          activeMedia.push(`🎵 ${artist ? `${artist} – ${track}` : track}`);
+        }
       }
     });
-    const tvDev = deviceMapping['wz_lgtv'] ? homeyRawDevicesById[deviceMapping['wz_lgtv']] : null;
-    if (tvDev?.capabilitiesObj?.onoff?.value) {
-      const app = tvDev.capabilitiesObj.speaker_track?.value || 'AN';
-      activeMedia.push(`📺 TV: ${app}`);
+    const tvMapped = parseMappingTarget(deviceMapping['wz_lgtv']);
+    if (tvMapped && tvMapped.bridge === 'homey') {
+      const tvDev = homeyRawDevicesById[tvMapped.rawId];
+      if (tvDev?.capabilitiesObj?.onoff?.value) {
+        const app = tvDev.capabilitiesObj.speaker_track?.value || 'AN';
+        activeMedia.push(`📺 TV: ${app}`);
+      }
+    } else if (tvMapped && tvMapped.bridge === 'ha') {
+      const tvEnt = haEntitiesById[tvMapped.rawId];
+      if (tvEnt && !['off', 'standby', 'unavailable', 'unknown'].includes(String(tvEnt.state).toLowerCase())) {
+        const app = tvEnt.attributes?.app_name || tvEnt.attributes?.source || 'AN';
+        activeMedia.push(`📺 TV: ${app}`);
+      }
     }
     if (activeMedia.length > 0) {
       mediaEl.textContent = activeMedia.join('  |  ');
@@ -1675,9 +2047,14 @@ async function turnOffAllLightsFromHud() {
   }
   for (const id of lightIds) {
     applyDeviceState(id, false);
-    const hId = deviceMapping[id];
-    if (homeyConnected && hId) {
-      sendHomeyCapability(hId, 'onoff', false);
+    const mapped = parseMappingTarget(deviceMapping[id]);
+    if (mapped && mapped.bridge === 'homey' && homeyConnected) {
+      sendHomeyCapability(mapped.rawId, 'onoff', false);
+    } else if (mapped && mapped.bridge === 'ha' && haConnected && window.HAConnector) {
+      const entity = haEntitiesById[mapped.rawId];
+      if (entity) {
+        window.HAConnector.controlEntity(haBaseUrl, haToken, entity, deviceObjects[id].data, false, { mode: 'onoff' });
+      }
     }
   }
   updateOverviewHud();
